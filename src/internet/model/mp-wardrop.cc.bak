@@ -1,0 +1,679 @@
+/*
+ * mp-wardrop.cc
+ *
+ *  Created on: Aug 20, 2013
+ *      Author: sergi
+ */
+
+#include "mp-wardrop.h"
+#include "ns3/object.h"
+#include "ns3/log.h"
+#include "ns3/uinteger.h"
+#include "ns3/double.h"
+#include "ns3/boolean.h"
+#include "ns3/trace-source-accessor.h"
+#include "ns3/ptr.h"
+#include "ns3/nstime.h"
+#include "ns3/simulator.h"
+#include "ns3/packet.h"
+
+NS_LOG_COMPONENT_DEFINE ("MpWardrop");
+
+namespace ns3 {
+
+NS_OBJECT_ENSURE_REGISTERED (MpWardrop);
+
+TypeId
+MpWardrop::GetTypeId (void)
+{
+  static TypeId tid = TypeId ("ns3::MpWardrop")
+.SetParent<MpScheduler> ()
+.AddConstructor<MpWardrop> ()
+.AddAttribute ("SndBufSize",
+	               "TcpSocket maximum transmit buffer size (bytes)",
+	               UintegerValue (4194304), // 256k
+	               MakeUintegerAccessor (&MpWardrop::GetSndBufSize,
+	                                     &MpWardrop::SetSndBufSize),
+	               MakeUintegerChecker<uint32_t> ())
+.AddAttribute ("SndBufSize1",
+			      "TcpSocket maximum transmit buffer size (bytes)",
+			      UintegerValue (4194304), // 256k
+	               MakeUintegerAccessor (&MpWardrop::GetSndBufSize1,
+	                                     &MpWardrop::SetSndBufSize1),
+			      MakeUintegerChecker<uint32_t> ())
+.AddAttribute ("SndBufSize2",
+				   "TcpSocket maximum transmit buffer size (bytes)",
+				   UintegerValue (4194304), // 256k
+	               MakeUintegerAccessor (&MpWardrop::GetSndBufSize2,
+	                                     &MpWardrop::SetSndBufSize2),
+				   MakeUintegerChecker<uint32_t> ())
+.AddAttribute ("Limit1", "Flow one time limit in ms",
+                UintegerValue (100),
+                MakeUintegerAccessor (&MpWardrop::m_limit),
+                MakeUintegerChecker<uint32_t> ())
+.AddAttribute ("Limit2", "Flow one time limit in ms",
+				UintegerValue (200),
+				MakeUintegerAccessor (&MpWardrop::m_limit2),
+				MakeUintegerChecker<uint32_t> ())
+.AddAttribute ("Mtu", "Flow one time limit in ms",
+				UintegerValue (1400),
+				MakeUintegerAccessor (&MpWardrop::m_mtu),
+				MakeUintegerChecker<uint32_t> ())
+.AddAttribute ("c1", "Capacity channel 1",
+				//UintegerValue (187500),
+				UintegerValue(125000),
+				MakeUintegerAccessor (&MpWardrop::c1),
+				MakeUintegerChecker<uint32_t> ())
+.AddAttribute ("c2", "Capacity channel 2",
+				//UintegerValue (93750),
+				UintegerValue(62500),
+				MakeUintegerAccessor (&MpWardrop::c2),
+				MakeUintegerChecker<uint32_t> ())
+.AddTraceSource ("Buffer",
+				"Buffer occupancy",
+				MakeTraceSourceAccessor (&MpWardrop::m_buffer))
+.AddTraceSource ("Buffer1",
+				"Buffer occupancy",
+				MakeTraceSourceAccessor (&MpWardrop::m_buffer1))
+.AddTraceSource ("Buffer2",
+				"Buffer occupancy",
+				MakeTraceSourceAccessor (&MpWardrop::m_buffer2))
+;
+  return tid;
+}
+
+MpWardrop::MpWardrop()
+: m_limit(100),
+  m_limit2(200),
+  m_alpha(0),
+  m_beta(0),
+  m_landaRate(0),
+  m_lastSampleLanda(0),
+  m_lastLanda(0),
+  data(0),
+  m_landaRate2(0),
+  m_lastSampleLanda2(0),
+  m_lastLanda2(0),
+  data2(0),
+  m_landa11Rate(0),
+  m_landa12Rate(0),
+  m_landa21Rate(0),
+  m_landa22Rate(0),
+  m_buffer(0),
+  m_buffer1(0),
+  m_buffer2(0)
+ // nextSubFlow(0)
+{
+	// TODO Auto-generated constructor stub
+	/*std::vector<uint32_t> subflowsToUse;
+	subflowsToUse.push_back(0);
+	subflowsToUse.push_back(1);
+	std::vector<uint32_t> subflowsToUse1;
+	subflowsToUse1.push_back(0);
+	subflowsToUse1.push_back(1);
+	m_wsubflowsToUse.insert(SubflowPair(0,subflowsToUse));
+	m_wsubflowsToUse.insert(SubflowPair(1,subflowsToUse1));*/
+	drop=false;
+
+}
+
+MpWardrop::~MpWardrop() {
+	// TODO Auto-generated destructor stub
+}
+/*
+int
+MpWardrop::Add(Ptr<Packet> packet,uint32_t subflow)
+{
+
+}*/
+
+int
+MpWardrop::Add(Ptr<Packet> p,uint32_t subflow)
+{
+	NS_LOG_FUNCTION(this << p->GetSize() << m_txBuffer.HeadSequence () << m_txBuffer.TailSequence () << m_txBuffer.Size());
+
+	  if(subflow==0)return 0;
+
+	  if (!m_txBuffer.Add (p))
+	  { // TxBuffer overflow, send failed
+		 //m_socket->SetError(Socket::ERROR_MSGSIZE);
+		 NS_LOG_FUNCTION("Buffer full");
+		 return -1;
+	  }
+	  m_buffer = m_txBuffer.Size();
+	  NS_LOG_FUNCTION(this << p->GetSize() << m_txBuffer.HeadSequence () << m_txBuffer.TailSequence () << m_txBuffer.Size());
+	  NS_LOG_LOGIC("TailSeq insert  " << m_txBuffer.TailSequence()-p->GetSize() << " " << p->GetSize());
+	  m_sizeTxMap.insert(SizePair(m_txBuffer.TailSequence()-p->GetSize(),p->GetSize()));
+
+	  switch(subflow)
+	  {
+
+	  	  case 1:
+	  	  {
+	 // 		NS_LOG_FUNCTION(this << subflow << m_nextTxSequence << m_nextTxSequence1 << p->GetSize() << m_txBuffer1.HeadSequence () << m_txBuffer1.TailSequence () << m_txBuffer1.Size());
+			  SequenceNumber64 tailSeq1 = m_txBuffer1.TailSequence();
+	  		  if (!m_txBuffer1.Add (p))
+	  		  { // TxBuffer overflow, send failed
+	  			 //m_socket->SetError(Socket::ERROR_MSGSIZE);
+	  			 NS_LOG_FUNCTION("Buffer full");
+	  			 return -1;
+	  		  }
+	  		  m_buffer1 = m_txBuffer1.Size();
+
+	  //		NS_LOG_LOGIC("TailSeq1 insert  " << m_txBuffer1.TailSequence()-p->GetSize() << " " << m_txBuffer.TailSequence()-p->GetSize());
+	  		  m_seqTxMap1.insert(SeqPair(m_txBuffer.TailSequence()-p->GetSize(),m_txBuffer1.TailSequence()-p->GetSize()));
+	  		 // m_sizeTxMap.insert(SizePair(m_nextTxSequence1,p->GetSize()));
+			  t = Simulator::Now()-t;
+			  data+= p->GetSize();
+			  if(t.GetSeconds()>0){
+				  m_landaRate = data / t.GetSeconds();
+				  data = 0;
+				  double alpha = 0.9;
+				  /*double sample_landa = m_landaRate;
+				  m_landaRate = (alpha * m_lastLanda) + ((1 - alpha) * ((sample_landa + m_lastSampleLanda) / 2));
+				  m_lastSampleLanda = sample_landa;
+				  m_lastLanda = sample_landa;*/
+				  m_landaRate = (alpha * m_lastLanda) + ((1 - alpha) * m_landaRate);
+				  //m_lastSampleLanda = sample_landa;
+				  m_lastLanda = m_landaRate;
+			  }
+			  t = Simulator::Now();
+	  		  break;
+	  	  }
+	  	  case 2:
+	  	  {
+		//  	 NS_LOG_FUNCTION(this << subflow << m_nextTxSequence << m_nextTxSequence2 << p->GetSize() << m_txBuffer2.HeadSequence () << m_txBuffer2.TailSequence () << m_txBuffer2.Size());
+			  SequenceNumber64 tailSeq2 = m_txBuffer2.TailSequence();
+	  		  if (!m_txBuffer2.Add (p))
+	  		  { // TxBuffer overflow, send failed
+	  			 //m_socket->SetError(Socket::ERROR_MSGSIZE);
+	  			 NS_LOG_FUNCTION("Buffer full");
+	  			 return -1;
+	  		  }
+	  		  m_buffer2 = m_txBuffer2.Size();
+
+	  	//	  NS_LOG_LOGIC("TailSeq2 insert  " << m_txBuffer2.TailSequence()-p->GetSize() << " " << m_txBuffer.TailSequence()-p->GetSize());
+	  		  m_seqTxMap2.insert(SeqPair(m_txBuffer.TailSequence()-p->GetSize(),m_txBuffer2.TailSequence()-p->GetSize()));
+	  		 // m_sizeTxMap.insert(SizePair(m_nextTxSequence2,p->GetSize()));
+			  t2 = Simulator::Now()-t2;
+			  data2+= p->GetSize();
+			  if(t2.GetSeconds()>0){
+				  m_landaRate2 = data2 / t2.GetSeconds();
+				  data2 = 0;
+				  double alpha = 0.9;
+				  /*double sample_landa = m_landaRate;
+				  m_landaRate = (alpha * m_lastLanda) + ((1 - alpha) * ((sample_landa + m_lastSampleLanda) / 2));
+				  m_lastSampleLanda = sample_landa;
+				  m_lastLanda = sample_landa;*/
+
+				  m_landaRate2 = (alpha * m_lastLanda2) + ((1 - alpha) * m_landaRate2);
+				  //m_lastSampleLanda = sample_landa;
+				  m_lastLanda2 = m_landaRate2;
+			  }
+			  t2 = Simulator::Now();
+	  		  break;
+	  	  }
+	  	  default:
+	  		  break;
+	  }
+	  /*std::map<SequenceNumber64,uint32_t>::iterator it;
+
+	  for(std::map<SequenceNumber64,SequenceNumber64>::iterator iter = m_seqTxMap1.begin(); iter != m_seqTxMap1.end(); iter++)
+	  	{
+		it=m_sizeTxMap.find(iter->first);
+		if(it!=m_sizeTxMap.end()){
+			  NS_LOG_LOGIC("Seq buffer1 " << iter->first << " "<< iter->second << " " << it->second);
+		}
+	  	}
+
+
+	  for(std::map<SequenceNumber64,SequenceNumber64>::iterator iter = m_seqTxMap2.begin(); iter != m_seqTxMap2.end(); iter++)
+	  	{
+		it=m_sizeTxMap.find(iter->first);
+		if(it!=m_sizeTxMap.end()){
+			  NS_LOG_LOGIC("Seq buffer2 " << iter->first << " "<< iter->second << " " << it->second);
+		}
+	  	}*/
+	//  NS_LOG_LOGIC("Buffer size:"<<m_txBuffer.Size());
+	//  NS_LOG_LOGIC("Buffer1 size:"<<m_txBuffer1.Size());
+   //   NS_LOG_LOGIC("Buffer2 size:"<<m_txBuffer2.Size());
+
+  return 1;
+
+}
+int
+MpWardrop::Discard(SequenceNumber64 seq)
+{
+	//NS_LOG_FUNCTION(this);
+	NS_LOG_FUNCTION(this << seq << m_txBuffer.HeadSequence () << m_txBuffer.TailSequence () << m_txBuffer.Size());
+
+    if (seq <= m_txBuffer.HeadSequence ())
+	{ // Case 1: Old ACK, ignored.
+	   NS_LOG_LOGIC ("Ignored ack of " << seq);
+	   return -1;
+	}
+	else if (seq > m_txBuffer.HeadSequence ())
+	{ // Case 3: New ACK, reset m_dupAckCount and update m_txBuffer
+	   NS_LOG_LOGIC ("New ack of " << seq);
+	   m_txBuffer.DiscardUpTo(seq);
+	   m_buffer = m_txBuffer.Size();
+		 NS_LOG_LOGIC("Buffer size:"<<m_buffer);
+
+		std::map<SequenceNumber64,SequenceNumber64>::iterator it;
+
+		it=m_seqTxMap1.find(seq);
+		if(it!=m_seqTxMap1.end()){
+			m_txBuffer1.DiscardUpTo (it->second);
+			m_buffer1 = m_txBuffer1.Size();
+			NS_LOG_LOGIC("Buffer1 size:"<<m_buffer1);
+			m_seqTxMap1.erase(seq);
+			m_sizeTxMap.erase(it->second);
+
+		}
+
+		it=m_seqTxMap2.find(seq);
+		if(it!=m_seqTxMap2.end()){
+			m_txBuffer2.DiscardUpTo (it->second);
+			m_buffer2 = m_txBuffer2.Size();
+			NS_LOG_LOGIC("Buffer2 size:"<<m_buffer2);
+			m_seqTxMap2.erase(seq);
+			m_sizeTxMap.erase(it->second);
+
+
+		}
+	   return 1;
+	}
+    return 0;
+}
+
+Ptr<Packet>
+MpWardrop::GetPacket()
+{
+	NS_LOG_FUNCTION(this<<m_nextTxSequence);
+
+
+	std::map<SequenceNumber64,SequenceNumber64>::iterator it;
+	std::map<SequenceNumber64,uint32_t>::iterator it2;
+
+	/*for(std::map<SequenceNumber64,SequenceNumber64>::iterator iter = m_seqTxMap1.begin(); iter != m_seqTxMap1.end(); ++iter)
+	{
+		std::map<SequenceNumber64,uint32_t>::iterator iter2;
+		iter2=m_sizeTxMap.find(iter->first);
+		NS_LOG_LOGIC("Seq1 " << iter->first << " " << iter->second << " " << iter2->second);
+	}
+
+	for(std::map<SequenceNumber64,SequenceNumber64>::iterator iter = m_seqTxMap2.begin(); iter != m_seqTxMap2.end(); ++iter)
+	{
+		std::map<SequenceNumber64,uint32_t>::iterator iter2;
+		iter2=m_sizeTxMap.find(iter->first);
+		NS_LOG_LOGIC("Seq2 " << iter->first << " " << iter->second << " " << iter2->second);
+	}*/
+	it=m_seqTxMap1.find(m_nextTxSequence);
+	if(it!=m_seqTxMap1.end()){
+		it2=m_sizeTxMap.find(m_nextTxSequence);
+		if(it2!=m_sizeTxMap.end()){
+		return m_txBuffer1.CopyFromSequence (it2->second, it->second);
+		}
+	}
+
+	it=m_seqTxMap2.find(m_nextTxSequence);
+	if(it!=m_seqTxMap2.end()){
+		it2=m_sizeTxMap.find(m_nextTxSequence);
+		if(it2!=m_sizeTxMap.end()){
+		return m_txBuffer2.CopyFromSequence (it2->second, it->second);
+		}
+	}
+
+
+	return Create<Packet>();
+}
+
+void
+MpWardrop::SetNextSequence(SequenceNumber64 seq)
+{
+	m_nextTxSequence = seq;
+
+}
+void
+MpWardrop::SetSndBufSize (uint32_t size)
+{
+  m_txBuffer.SetMaxBufferSize (size);
+}
+
+uint32_t
+MpWardrop::GetSndBufSize (void) const
+{
+  return m_txBuffer.MaxBufferSize ();
+}
+void
+MpWardrop::SetSndBufSize1 (uint32_t size)
+{
+  m_txBuffer1.SetMaxBufferSize (size);
+}
+
+uint32_t
+MpWardrop::GetSndBufSize1 (void) const
+{
+  return m_txBuffer1.MaxBufferSize ();
+}
+void
+MpWardrop::SetSndBufSize2 (uint32_t size)
+{
+  m_txBuffer2.SetMaxBufferSize (size);
+}
+
+uint32_t
+MpWardrop::GetSndBufSize2 (void) const
+{
+  return m_txBuffer2.MaxBufferSize ();
+}
+
+int
+MpWardrop::GetSubflowToUse(SequenceNumber64 seq, std::vector<Ptr<TcpSocketBase> > sockets)
+{
+	NS_LOG_LOGIC("Subflow size " << (uint32_t)sockets.size() << " seq " << seq);
+	NS_LOG_LOGIC("Landa11 " << GetLanda(0,0)*8 << " alphac1 " << (double)m_alpha*c1*8);
+	NS_LOG_LOGIC("Landa12 " << GetLanda(0,1)*8 << " betac2 " << (double)m_beta*c2*8);
+	NS_LOG_LOGIC("Landa21 " << GetLanda(1,0)*8 << " 1-alphac1 " << (double)(1-m_alpha)*c1*8);
+	NS_LOG_LOGIC("Landa22 " << GetLanda(1,1)*8 << " 1-betac2 " << (double)(1-m_beta)*c2*8);
+
+	int nextSubFlow=-1;
+	for(uint32_t i=0;i<sockets.size();i++){
+
+    	if(m_rtt<sockets[i]->GetMinRtt()){
+    		m_rtt = Seconds(2*sockets[i]->GetMinRtt().GetSeconds());
+    		NS_LOG_LOGIC(m_rtt.GetSeconds() << " " << sockets[i]->GetMinRtt());
+    	}
+	}
+
+    if(!m_IsCount&&m_rtt.GetSeconds()>0){
+	  NS_LOG_LOGIC("Waterfilling event " <<  m_rtt.GetSeconds());
+	  m_IsCount = true;
+	  m_bwEstimateEvent.Cancel();
+	  m_bwEstimateEvent = Simulator::Schedule (m_rtt, &MpWardrop::Update,this,sockets);
+    }
+
+	std::map<SequenceNumber64,SequenceNumber64>::iterator it;
+
+	it=m_seqTxMap1.find(seq);
+		if(it!=m_seqTxMap1.end()){
+			nextSubFlow = (m_lastUsedsFlowIdx + 1) % sockets.size();
+			m_lastUsedsFlowIdx = nextSubFlow;
+		}
+		it=m_seqTxMap2.find(seq);
+		if(it!=m_seqTxMap2.end()){
+		  //t2 = Simulator::Now()-t2;
+		  Time t = Simulator::Now()-t2;
+		  //NS_LOG_LOGIC("Time:"<<t.GetSeconds());
+		  if(t.GetSeconds()>0){
+			  //NS_LOG_LOGIC("Landarate2: " << m_landaRate2);
+
+			  m_landaRate2 = 0;
+			  //NS_LOG_LOGIC("Landarate2:" << m_landaRate2);
+			 // data2 = 0;
+			  double alpha = 0.9;
+			  m_landaRate2 = (alpha * m_lastLanda2) + ((1 - alpha) * m_landaRate2);
+			  m_lastLanda2 = m_landaRate2;
+		  }
+		  t2 = Simulator::Now();
+			NS_LOG_LOGIC("Landarate2: " << m_landaRate2);
+			//double landa21 = (1-m_alpha)*c1 - (double)(m_limit2/1000)*m_mtu;
+			//double landa22 = (1-m_beta)*c2 - (double)(m_limit2/1000)*m_mtu;
+			//NS_LOG_LOGIC("landa21: " << (1-m_alpha)*c1 << " " << (double)m_mtu/((double)m_limit/1000));
+			double landa21 = ((1-m_alpha)*c1) - ((double)m_mtu/((double)m_limit/1000));
+			double landa22 = ((1-m_beta)*c2) - ((double)m_mtu/((double)m_limit/1000));
+			NS_LOG_LOGIC("C1:" << c1*8 << " C2:" << c2*8 << " limit:"  << (double)m_limit2/1000 << " landa21:" << landa21*8 << " landa22:" << landa22*8);
+			NS_LOG_LOGIC("Landa22:" << GetLanda(1,1)*8 << " Landa21:" << GetLanda(1,0)*8 << " lastsubflow:" << m_lastUsedsFlowIdx);
+			if(m_lastUsedsFlowIdx2==0){
+				if(landa22>GetLanda(1,1)){
+					nextSubFlow = 1;
+				} else if(landa21>GetLanda(1,0)) {
+					nextSubFlow = 0;
+				}
+			} else {
+				if(landa21>GetLanda(1,0)){
+					nextSubFlow = 0;
+				} else if(landa22>GetLanda(1,1)) {
+					nextSubFlow = 1;
+				}
+
+			}
+			NS_LOG_LOGIC("Nextsubflow " << nextSubFlow);
+			if(nextSubFlow!=-1){
+				m_lastUsedsFlowIdx2 = nextSubFlow;
+			} else {
+				NS_LOG_LOGIC("Packet not sent");
+
+				std::map<SequenceNumber64,uint32_t>::iterator iter;
+				iter=m_sizeTxMap.find(seq);
+				NS_LOG_FUNCTION(seq << m_txBuffer.HeadSequence () << m_txBuffer.TailSequence () << m_txBuffer.Size() << iter->second);
+				NS_LOG_FUNCTION(seq << m_txBuffer2.HeadSequence () << m_txBuffer2.TailSequence () << m_txBuffer2.Size() << iter->second);
+				SequenceNumber64 sequence = seq + SequenceNumber64(iter->second);
+				//m_txBuffer.Remove (sequence,iter->second);
+				m_txBuffer.Remove (seq,iter->second);
+				sequence = SequenceNumber64(it->second) + SequenceNumber64(iter->second);
+				//m_txBuffer2.Remove (sequence,iter->second);
+				m_txBuffer2.Remove (it->second,iter->second);
+				m_seqTxMap2.erase(seq);
+				m_sizeTxMap.erase(seq);
+				NS_LOG_FUNCTION(seq << m_txBuffer.HeadSequence () << m_txBuffer.TailSequence () << m_txBuffer.Size() << iter->second);
+				NS_LOG_FUNCTION(seq << m_txBuffer2.HeadSequence () << m_txBuffer2.TailSequence () << m_txBuffer2.Size() << iter->second);
+			}
+		}
+
+	switch(nextSubFlow){
+	case 0:
+		it=m_seqTxMap1.find(seq);
+		if(it!=m_seqTxMap1.end()){
+			m_landa11Rate++;
+		}
+		it=m_seqTxMap2.find(seq);
+		if(it!=m_seqTxMap1.end()){
+			m_landa21Rate++;
+		}
+		break;
+	case 1:
+		it=m_seqTxMap1.find(seq);
+		if(it!=m_seqTxMap1.end()){
+			m_landa12Rate++;
+		}
+		it=m_seqTxMap2.find(seq);
+		if(it!=m_seqTxMap1.end()){
+			m_landa22Rate++;
+		}
+		break;
+	default:
+
+		break;
+	}
+
+	/*NS_LOG_LOGIC ("landa1 " << GetLanda(0)*8);
+	NS_LOG_LOGIC ("landa2 " << GetLanda(1)*8);
+	NS_LOG_LOGIC ("landa3 " << GetLanda(2)*8);*/
+
+    return nextSubFlow;
+}
+
+void
+MpWardrop::Update(std::vector<Ptr<TcpSocketBase> > sockets)
+{
+	NS_LOG_FUNCTION(this);
+	bweMap.clear();
+	landaMap.clear();
+
+	/*for(uint32_t i=0; i < sockets.size(); i++){
+	   NS_LOG_LOGIC ("bw" << i << " " << sockets[i]->GetCurrentBw()*8);
+	   if(sockets[i]->GetCurrentBw()>0)
+		   bweMap.insert(std::pair<double,uint32_t>(sockets[i]->GetCurrentBw(),i));
+	}*/
+	NS_LOG_LOGIC ("bw" << 0 << " " << c1*8);
+	NS_LOG_LOGIC ("bw" << 1 << " " << c2*8);
+	NS_LOG_LOGIC ("landa1 " << m_landaRate*8);
+	NS_LOG_LOGIC ("landa2 " << m_landaRate2*8);
+	bweMap.insert(std::pair<double,uint32_t>(c1,0));
+	bweMap.insert(std::pair<double,uint32_t>(c2,0));
+
+
+	m_IsCount = false;
+
+	   NS_LOG_LOGIC ("Landa1 " << m_landaRate*8 << " Landa2 " << m_landaRate2*8);
+
+
+	//m_alpha = ((m_mtu * m_limit/1000) + (double)GetLanda(0,0)) / sockets[0]->GetCurrentBw();
+	//m_beta = ((m_mtu * m_limit/1000) + (double)GetLanda(0,1)) / sockets[1]->GetCurrentBw();
+	m_alpha = ((double)(m_mtu / ((double)m_limit/1000)) + (double)GetLanda(0,0)) / c1;
+	m_beta = ((double)(m_mtu / ((double)m_limit/1000)) + (double)GetLanda(0,1)) / c2;
+
+    NS_LOG_LOGIC("Alpha " << m_alpha << " beta " << m_beta);
+	//NS_LOG_LOGIC ("Landa11 " << (double)GetLanda(0,0)*8 << " time " << 1400/((m_alpha*sockets[0]->GetCurrentBw())-(GetLanda(0,0))) << " "<< m_alpha*sockets[0]->GetCurrentBw()*8);
+	//NS_LOG_LOGIC ("Landa12 " << (double)GetLanda(0,1)*8 << " time " << 1400/((m_beta*sockets[1]->GetCurrentBw())-(GetLanda(0,1))) << " "<< m_beta*sockets[1]->GetCurrentBw()*8);
+	//NS_LOG_LOGIC ("Landa21 " << (double)GetLanda(1,0)*8 << " time " << 1400/(((1-m_alpha)*sockets[0]->GetCurrentBw())-(GetLanda(1,0))) << " "<< (1-m_alpha)*sockets[0]->GetCurrentBw()*8);
+	//NS_LOG_LOGIC ("Landa22 " << (double)GetLanda(1,1)*8 << " time " << 1400/(((1-m_beta)*sockets[1]->GetCurrentBw())-(GetLanda(1,1)))<< " "<< (1-m_beta)*sockets[1]->GetCurrentBw()*8);
+
+	NS_LOG_LOGIC ("Landa11 " << (double)GetLanda(0,0)*8 << " time " << (double)1400/(double)((m_alpha*c1)-((double)GetLanda(0,0))) << " "<< m_alpha*c1*8);
+	NS_LOG_LOGIC ("Landa12 " << (double)GetLanda(0,1)*8 << " time " << (double)1400/(double)((m_beta*c2)-((double)GetLanda(0,1))) << " "<< m_beta*c2*8);
+	NS_LOG_LOGIC ("Landa21 " << (double)GetLanda(1,0)*8 << " time " << (double)1400/(double)(((1-m_alpha)*c1)-((double)GetLanda(1,0))) << " "<< (1-m_alpha)*c1*8);
+	NS_LOG_LOGIC ("Landa22 " << (double)GetLanda(1,1)*8 << " time " << (double)1400/(double)(((1-m_beta)*c2)-((double)GetLanda(1,1)))<< " "<< (1-m_beta)*c2*8);
+    //m_wsubflowsToUse.clear();
+
+	/*for(uint32_t s = 0;s<2;s++){
+		double landa = 0;
+		double c = 0;
+		//m_subflowsToUse.clear();
+		for(std::map<double,uint32_t>::reverse_iterator i = bweMap.rbegin (); i != bweMap.rend (); i++)
+		{
+			landa+= GetLanda(s,i->second);
+			std::map<double,uint32_t>::reverse_iterator j = i;
+			j++;
+			if(j!=bweMap.rend()){
+				if(s==0){
+					if(i->second==0){
+						c+= i->first*m_alpha - j->first*m_beta;
+					} else if(i->second==1) {
+						c+= i->first*m_beta - j->first*m_alpha;
+					}
+				} else if (s==1){
+					if(i->second==0){
+						c+= i->first*(1-m_alpha) - j->first*m_beta;
+					} else if(i->second==1) {
+						c+= i->first*(1-m_beta) - j->first*m_alpha;
+					}
+				}
+			}
+		    NS_LOG_LOGIC("Landa " << landa*8 << " bw " << c*8);
+			NS_LOG_LOGIC ("Channel to use " << i->second << " subflow " << s);
+			//m_subflowsToUse.push_back(i->second);
+			if(landa<c){
+				break;
+			}
+		}
+		//m_wsubflowsToUse.insert(SubflowPair(s,m_subflowsToUse));
+	}*/
+
+
+}
+
+double
+MpWardrop::GetLanda(uint32_t flow, uint32_t channel)
+{
+	//NS_LOG_LOGIC("landa11 " << m_landa11Rate << " landa12 " << m_landa12Rate);
+	//NS_LOG_LOGIC("landa21 " << m_landa21Rate << " landa22 " << m_landa22Rate);
+
+	double landa;
+	double rate1 = m_landa11Rate+m_landa12Rate;
+	double rate2 = m_landa21Rate+m_landa22Rate;
+
+	switch(flow)
+	{
+	case 0:
+		if(rate1==0)return 0;
+		else{
+			if(channel==0)
+			{
+				//NS_LOG_LOGIC("landa rate11 " << (double)m_landa11Rate/(m_landa11Rate+m_landa12Rate));
+				double landarate = (double)m_landa11Rate/rate1;
+				landa =  (double)m_landaRate*landarate;
+			} else if (channel==1){
+				//NS_LOG_LOGIC("landa rate12 " << (double)m_landa12Rate/(m_landa11Rate+m_landa12Rate));
+				double landarate = (double)m_landa12Rate/rate1;
+				landa =  (double)m_landaRate*landarate;
+			}
+		}
+		break;
+	case 1:
+		if(rate2==0)return 0;
+		else {
+			if(channel==0)
+			{
+				double landarate = (double)m_landa21Rate/rate2;
+				landa =  (double)m_landaRate2*landarate;
+			} else if (channel==1){
+				double landarate = (double)m_landa22Rate/rate2;
+				landa =  (double)m_landaRate2*landarate;
+			}
+		}
+
+		break;
+	default:
+		return 0;
+		break;
+
+	}
+
+	//NS_LOG_LOGIC("return landa  " << m_landaRate << " " << m_landaRate2 << " " << (double)landa);
+
+	return landa;
+
+}
+
+/*uint32_t
+MpWardrop::GetSubflowToUse(uint8_t subflow, uint32_t lastUsedsFlowIdx)
+{
+	uint32_t nextSubflow;
+    if(m_subflowsToUse.size()==0)nextSubflow = (lastUsedsFlowIdx + 1) % sockets.size();
+    else
+	{
+    	bool found=false;
+    	nextSubflow = (lastUsedsFlowIdx + 1) % sockets.size();
+    	while(!found){
+			NS_LOG_LOGIC("Subflow to use while " << nextSubflow);
+			for(uint32_t i = 0; i<m_subflowsToUse.size();i++){
+				NS_LOG_LOGIC("Subflow to use for " <<  m_subflowsToUse[i]);
+				if(nextSubflow == m_subflowsToUse[i]){
+					NS_LOG_LOGIC("Subflow to use found " <<  m_subflowsToUse[i]);
+					found=true;
+					break;
+				}
+			}
+			if(!found)nextSubflow = (nextSubflow + 1) % sockets.size();
+    	}
+
+	}
+
+
+	switch(subflow){
+	case 0:
+	case 1:
+		if(nextSubflow==0){
+			m_landa11Rate++;
+		} else if(nextSubflow==1){
+			m_landa12Rate++;
+		}
+		break;
+	case 2:
+		if(nextSubflow==0){
+			m_landa21Rate++;
+		} else if(nextSubflow==1){
+			m_landa22Rate++;
+		}
+		break;
+
+	default:
+
+		break;
+	}
+
+	return nextSubflow;
+}*/
+
+}
