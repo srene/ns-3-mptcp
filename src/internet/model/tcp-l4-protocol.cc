@@ -46,6 +46,7 @@
 #include "rtt-estimator.h"
 #include "tcp-socket.h"
 #include "mp-tcp-socket.h"
+#include "mp-roundrobin.h"
 
 #include <vector>
 #include <sstream>
@@ -82,6 +83,11 @@ TcpL4Protocol::GetTypeId (void)
                    TypeIdValue (TcpSocket::GetTypeId ()),
                    MakeTypeIdAccessor (&TcpL4Protocol::m_socketTypeId),
                    MakeTypeIdChecker ())
+   .AddAttribute ("Scheduler",
+				  "Scheduler type of TCP objects.",
+				  TypeIdValue (MpRoundRobin::GetTypeId ()),
+				  MakeTypeIdAccessor (&TcpL4Protocol::m_schedTypeId),
+				  MakeTypeIdChecker ())
     .AddAttribute ("SocketBaseType",
 				   "Socket type of TCP objects.",
 				   TypeIdValue (TcpNewReno::GetTypeId ()),
@@ -188,16 +194,24 @@ Ptr<Socket>
 TcpL4Protocol::CreateSocket (TypeId socketType, TypeId congestion)
 {
   NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION(m_schedTypeId);
   ObjectFactory rttFactory;
   ObjectFactory socketFactory;
   ObjectFactory socketBaseFactory;
+  ObjectFactory schedFactory;
   rttFactory.SetTypeId (m_rttTypeId);
   socketFactory.SetTypeId (socketType);
   socketBaseFactory.SetTypeId (congestion);
+  schedFactory.SetTypeId(m_schedTypeId);
   Ptr<RttEstimator> rtt = rttFactory.Create<RttEstimator> ();
   Ptr<TcpSocket> socket = socketFactory.Create<TcpSocket> ();
   Ptr<TcpSocketBase> socketBase = socketBaseFactory.Create<TcpSocketBase> ();
+  Ptr<MpScheduler> sched = schedFactory.Create<MpScheduler>();
   socket->SetSocketBase(socketBase);
+  if(socketType==MpTcpSocket::GetTypeId ())
+  {
+	  socket->GetObject<MpTcpSocket>()->SetScheduler(sched);
+  }
   //Ptr<TcpSocket> socket = Create<TcpSocket>();
   socket->SetNode (m_node);
   socket->SetTcp (this);

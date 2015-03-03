@@ -127,6 +127,7 @@ public:
  // TcpRxBuffer                   m_rxBuffer;
   bool m_succeed;
   std::vector<Ptr<TcpSocketBase> > GetSocketsBase(void);
+  std::vector<Ptr<TcpSocketBase> > GetRxSocketsBase(void);
 protected:
   std::vector<Ptr<TcpSocketBase> > m_sockets;
   std::vector<Ptr<TcpSocketBase> > m_rxSockets;

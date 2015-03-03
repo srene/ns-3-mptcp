@@ -87,6 +87,10 @@ double TcpNewReno::GetCurrentBw (void)
 {
 	return 0;
 }
+double TcpNewReno::GetLastBw (void)
+{
+	return 0;
+}
 Time TcpNewReno::GetMinRtt(void)
 {
 	Time time;

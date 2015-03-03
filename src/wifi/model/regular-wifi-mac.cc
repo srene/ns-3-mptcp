@@ -351,6 +351,13 @@ RegularWifiMac::GetCompressedBlockAckTimeout (void) const
   return m_low->GetCompressedBlockAckTimeout ();
 }
 
+uint16_t
+RegularWifiMac::GetStaNumberConnected(void) const
+{
+  NS_LOG_FUNCTION (this);
+  return  m_stationManager->GetNConnectedSta();
+}
+
 void
 RegularWifiMac::SetAddress (Mac48Address address)
 {

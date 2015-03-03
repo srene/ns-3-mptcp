@@ -226,6 +226,7 @@ public:
    */
   void ConfigureStandard (enum WifiPhyStandard standard);
 
+  virtual uint16_t GetStaNumberConnected(void) const = 0;
 protected:
   void ConfigureDcf (Ptr<Dcf> dcf, uint32_t cwmin, uint32_t cwmax, enum AcIndex ac);
   void ConfigureCCHDcf (Ptr<Dcf> dcf, uint32_t cwmin, uint32_t cwmax, enum AcIndex ac);

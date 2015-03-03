@@ -115,7 +115,7 @@ public:
   * \return the number of stream indices assigned by this model
   */
   int64_t AssignStreams (int64_t stream);
-
+  void SetCallback (Callback<void> callback);
 protected:
   virtual void DoDispose (void);
 private:
@@ -138,6 +138,7 @@ private:
   void StartSending ();
   void StopSending ();
   void SendPacket ();
+  Callback<void> m_callback;
 
   Ptr<Socket>     m_socket;       // Associated socket
   Address         m_peer;         // Peer address
@@ -155,7 +156,10 @@ private:
   bool            m_sending;      // True if currently in sending state
   TypeId          m_tid;
   TracedCallback<Ptr<const Packet> > m_txTrace;
-
+  TypeId	  	  m_socketType;
+  TypeId		  m_congestion;
+  bool m_succeed;
+  uint32_t m_packetId;
 private:
   void ScheduleNextTx ();
   void ScheduleStartEvent ();
@@ -163,6 +167,7 @@ private:
   void ConnectionSucceeded (Ptr<Socket>);
   void ConnectionFailed (Ptr<Socket>);
   void Ignore (Ptr<Socket>);
+  void Succeeded(void);
 };
 
 } // namespace ns3

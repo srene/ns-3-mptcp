@@ -32,7 +32,7 @@
 #include "ns3/inet-socket-address.h"
 #include "ns3/inet6-socket-address.h"
 #include "tcp-newreno.h"
-//#include "ns3/sha-digest.h"
+#include "ns3/sha-digest.h"
 
 NS_LOG_COMPONENT_DEFINE ("TcpSocket");
 
@@ -154,12 +154,14 @@ TcpSocket::SetSocketBase (Ptr<TcpSocketBase> socketBase)
 void
 TcpSocket::SetSndBufSize (uint32_t size)
 {
+	NS_LOG_FUNCTION(this<<size);
 	m_sockets[0]->SetSndBufSize(size);
 }
 
 uint32_t
 TcpSocket::GetSndBufSize (void) const
 {
+	NS_LOG_FUNCTION(this<<m_sockets[0]->GetRcvBufSize());
 	return m_sockets[0]->GetRcvBufSize();
 }
 
@@ -294,7 +296,7 @@ TcpSocket::GetErrno (void) const
 bool
 TcpSocket::GetTcpMpCapable(void)
 {
-	NS_LOG_FUNCTION (this);
+	NS_LOG_FUNCTION (this<<false);
 	return false;
 }
 
@@ -669,4 +671,9 @@ TcpSocket::GetSocketsBase(void)
 	return m_sockets;
 }
 
+std::vector<Ptr<TcpSocketBase> >
+TcpSocket::GetRxSocketsBase(void)
+{
+	return m_rxSockets;
+}
 } // namespace ns3

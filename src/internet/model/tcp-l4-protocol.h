@@ -141,6 +141,7 @@ private:
   TypeId m_rttTypeId;
   TypeId m_socketTypeId;
   TypeId m_socketBaseTypeId;
+  TypeId m_schedTypeId;
 private:
   friend class TcpSocketBase;
   void SendPacket (Ptr<Packet>, const TcpHeader &,

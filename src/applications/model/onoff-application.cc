@@ -40,6 +40,12 @@
 #include "ns3/udp-socket-factory.h"
 #include "ns3/string.h"
 #include "ns3/pointer.h"
+#include "ns3/mp-tcp-socket.h"
+#include "ns3/tcp-mptcp.h"
+#include "ns3/rtp-protocol.h"
+#include "ns3/nal-unit-header.h"
+#include "ns3/tcp-westwood.h"
+
 
 NS_LOG_COMPONENT_DEFINE ("OnOffApplication");
 
@@ -86,6 +92,14 @@ OnOffApplication::GetTypeId (void)
                    TypeIdValue (UdpSocketFactory::GetTypeId ()),
                    MakeTypeIdAccessor (&OnOffApplication::m_tid),
                    MakeTypeIdChecker ())
+   .AddAttribute ("Congestion", "The type of protocol to use.",
+			   TypeIdValue (TcpWestwood::GetTypeId ()),
+			   MakeTypeIdAccessor (&OnOffApplication::m_congestion),
+			   MakeTypeIdChecker ())
+   .AddAttribute ("SocketType", "The type of protocol to use.",
+			   TypeIdValue (MpTcpSocket::GetTypeId ()),
+			   MakeTypeIdAccessor (&OnOffApplication::m_socketType),
+			   MakeTypeIdChecker ())
     .AddTraceSource ("Tx", "A new packet is created and is sent",
                      MakeTraceSourceAccessor (&OnOffApplication::m_txTrace))
   ;
@@ -101,6 +115,8 @@ OnOffApplication::OnOffApplication ()
   m_residualBits = 0;
   m_lastStartTime = Seconds (0);
   m_totBytes = 0;
+  m_succeed = false;
+  m_packetId = 0;
 }
 
 OnOffApplication::~OnOffApplication()
@@ -141,6 +157,10 @@ OnOffApplication::DoDispose (void)
   Application::DoDispose ();
 }
 
+void
+OnOffApplication::SetCallback (Callback<void> callback){
+	  m_callback = callback;
+}
 // Application Methods
 void OnOffApplication::StartApplication () // Called at time specified by Start
 {
@@ -149,18 +169,39 @@ void OnOffApplication::StartApplication () // Called at time specified by Start
   // Create the socket if not already
   if (!m_socket)
     {
-      m_socket = Socket::CreateSocket (GetNode (), m_tid);
-      m_socket->Bind ();
-      m_socket->Connect (m_peer);
-      m_socket->SetAllowBroadcast (true);
-      m_socket->ShutdownRecv ();
+	  if(m_tid!=UdpSocketFactory::GetTypeId ()){
+	      m_socket = Socket::CreateSocket (GetNode (), m_tid, m_socketType, m_congestion);
+	      m_socket->Bind ();
+	      m_socket->Connect (m_peer);
+	      m_socket->SetAllowBroadcast (true);
+	      m_socket->ShutdownRecv ();
+	      m_socket->SetConnectCallback (
+	        MakeCallback (&OnOffApplication::ConnectionSucceeded, this),
+	        MakeCallback (&OnOffApplication::ConnectionFailed, this));
+	      if(m_socketType==MpTcpSocket::GetTypeId ())m_socket->GetObject<MpTcpSocket>()->SetSuccedCallback (
+	      	    	MakeCallback (&OnOffApplication::Succeeded, this));
+	      /*m_socket->SetSendCallback (
+	        MakeCallback (&BulkSendMpApplication2::DataSend, this));
+	      */
+	      CancelEvents ();
+
+	  } else {
+	      m_socket = Socket::CreateSocket (GetNode (), m_tid);
+	      m_socket->Bind ();
+	      m_socket->Connect (m_peer);
+	      m_socket->SetAllowBroadcast (true);
+	      m_socket->ShutdownRecv ();
+	      CancelEvents ();
+
+	      ScheduleStartEvent ();
+	  }
+
     }
   // Insure no pending event
-  CancelEvents ();
   // If we are not yet connected, there is nothing to do here
   // The ConnectionComplete upcall will start timers at that time
   //if (!m_connected) return;
-  ScheduleStartEvent ();
+
 }
 
 void OnOffApplication::StopApplication () // Called at time specified by Stop
@@ -255,9 +296,19 @@ void OnOffApplication::SendPacket ()
   NS_LOG_FUNCTION_NOARGS ();
 
   NS_ASSERT (m_sendEvent.IsExpired ());
-  Ptr<Packet> packet = Create<Packet> (m_pktSize);
+  //Ptr<Packet> packet = Create<Packet> (m_pktSize);
+  Ptr<Packet> packet = Create<Packet> (m_pktSize-13);
+    NalUnitHeader nalHeader;
+    if(m_packetId%2==0)nalHeader = NalUnitHeader(1, NalUnitHeader::FU_A);
+    else nalHeader = NalUnitHeader(2, NalUnitHeader::FU_A);
+    packet->AddHeader(nalHeader);
+    RtpProtocol header;
+    NS_LOG_LOGIC("Send packet1 " << m_pktSize << " " << m_packetId);
+    header = RtpProtocol(RtpProtocol::UNSPECIFIED, m_packetId, Simulator::Now().GetMilliSeconds(), 0);
+    packet->AddHeader(header);
   m_txTrace (packet);
   m_socket->Send (packet);
+  m_packetId++;
   m_totBytes += m_pktSize;
   if (InetSocketAddress::IsMatchingType (m_peer))
     {
@@ -287,7 +338,16 @@ void OnOffApplication::ConnectionSucceeded (Ptr<Socket>)
   NS_LOG_FUNCTION_NOARGS ();
 
   m_connected = true;
-  ScheduleStartEvent ();
+  if(!m_callback.IsNull())m_callback();
+
+  //ScheduleStartEvent ();
+}
+
+void OnOffApplication::Succeeded(void)
+{
+	NS_LOG_FUNCTION (this);
+	m_succeed = true;
+	ScheduleStartEvent();
 }
 
 void OnOffApplication::ConnectionFailed (Ptr<Socket>)

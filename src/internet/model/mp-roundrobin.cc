@@ -29,13 +29,12 @@ MpRoundRobin::GetTypeId (void)
   static TypeId tid = TypeId ("ns3::MpRoundRobin")
 .SetParent<MpScheduler> ()
 .AddConstructor<MpRoundRobin> ()
-.AddAttribute ("SndBufSize",
+/*.AddAttribute ("SndBufSize",
 	               "TcpSocket maximum transmit buffer size (bytes)",
-	               UintegerValue (4194304), // 256k
+	               UintegerValue (2097152), // 256k
 	               MakeUintegerAccessor (&MpRoundRobin::GetSndBufSize,
 	                                     &MpRoundRobin::SetSndBufSize),
-	               MakeUintegerChecker<uint32_t> ())
-
+	               MakeUintegerChecker<uint32_t> ())*/
 ;
   return tid;
 }
@@ -45,7 +44,9 @@ MpRoundRobin::MpRoundRobin()
 m_lastSampleLanda(0),
 m_lastLanda(0),
 data(0),
-nextSubFlow(0),
+m_landa1Rate(0),
+m_landa2Rate(0),
+m_landa3Rate(0),
 data1(0),
 data2(0)
 {
@@ -57,9 +58,10 @@ MpRoundRobin::~MpRoundRobin() {
 	// TODO Auto-generated destructor stub
 }
 
-void
+/*void
 MpRoundRobin::SetSndBufSize (uint32_t size)
 {
+	  NS_LOG_FUNCTION(this<<size);
   m_txBuffer.SetMaxBufferSize (size);
 }
 
@@ -67,37 +69,13 @@ uint32_t
 MpRoundRobin::GetSndBufSize (void) const
 {
   return m_txBuffer.MaxBufferSize ();
-}
-
-int
-MpRoundRobin::Add(Ptr<Packet> p,uint32_t subflow)
+}*/
+/*int
+MpRoundRobin::Add(Ptr<Packet> packet,uint32_t subflow)
 {
-	NS_LOG_FUNCTION(this << p->GetSize() << m_txBuffer.HeadSequence () << m_txBuffer.TailSequence () << m_txBuffer.Size());
 
-	  if (!m_txBuffer.Add (p))
-	  { // TxBuffer overflow, send failed
-		 //m_socket->SetError(Socket::ERROR_MSGSIZE);
-		 NS_LOG_FUNCTION("Buffer full");
-		 return -1;
-	  }
-	  m_sizeTxMap.insert(SizePair(m_txBuffer.TailSequence()-p->GetSize(),p->GetSize()));
+}*/
 
-	  t = Simulator::Now()-t;
-	  data+= p->GetSize();
-	  if(t.GetSeconds()>0){
-		  m_landaRate = data / t.GetSeconds();
-		  data = 0;
-		  double alpha = 0.9;
-
-
-		  m_landaRate = (alpha * m_lastLanda) + ((1 - alpha) * m_landaRate);
-		  m_lastLanda = m_landaRate;
-	  }
-	  t = Simulator::Now();
-
-  return 1;
-
-}
 
 
 int
@@ -113,35 +91,38 @@ MpRoundRobin::Discard(SequenceNumber64 seq)
 	}
 	else if (seq > m_txBuffer.HeadSequence ())
 	{ // Case 3: New ACK, reset m_dupAckCount and update m_txBuffer
-	   NS_LOG_LOGIC ("New ack of " << seq);
-	   m_txBuffer.DiscardUpTo(seq-m_mtu);
+	   //NS_LOG_LOGIC ("New ack of " << seq);
+	   NS_LOG_LOGIC ("New ack of " << seq << " " <<m_txBuffer.HeadSequence() << " " << m_txBuffer.Size());
+	   m_txBuffer.DiscardUpTo(seq);
+	   NS_LOG_LOGIC ("New ack of " << seq << " " <<m_txBuffer.HeadSequence() << " " << m_txBuffer.Size());
+	   MpScheduler::Discard(seq);
 	   return 1;
 	}
     return 0;
 
 }
-void
-MpRoundRobin::SetMtu(uint32_t mtu)
-{
-	m_mtu = mtu;
-}
-Ptr<Packet>
+
+bool
 MpRoundRobin::GetPacket(std::vector<Ptr<TcpSocketBase> > sockets)
 {
-	NS_LOG_FUNCTION(this << GetLanda(0)*8 << GetLanda(1)*8 << sockets.size() << m_lastUsedsFlowIdx);
 
+	NS_LOG_FUNCTION("Socket 0 " << sockets[0] << " socket 1 " << sockets[1]);
+	NS_LOG_FUNCTION(this << GetLanda(0)*8 << GetLanda(1)*8 << sockets[0]->GetRtt()->GetCurrentEstimate().GetSeconds() << sockets[1]->GetRtt()->GetCurrentEstimate().GetSeconds() << sockets.size() << m_lastUsedsFlowIdx);
 
 	std::map<SequenceNumber64,uint32_t>::iterator it;
 	it=m_sizeTxMap.find(m_nextTxSequence);
 	if(it!=m_sizeTxMap.end()){
-		nextSubFlow = (m_lastUsedsFlowIdx + 1) % sockets.size();
-	    m_lastUsedsFlowIdx = nextSubFlow;
-	    NS_LOG_LOGIC("Get " << it->second << " " << m_nextTxSequence);
-		return m_txBuffer.CopyFromSequence (it->second, m_nextTxSequence);
+		m_lastUsedsFlowIdx = (m_lastUsedsFlowIdx + 1) % sockets.size();
+	    NS_LOG_LOGIC("Get " << it->second << " " << m_nextTxSequence << " " << sockets[m_lastUsedsFlowIdx]);
+	    MapSequence(sockets[m_lastUsedsFlowIdx]);
+	    m_nextTxSequence+=it->second;
+		return true;
+		//return m_txBuffer.CopyFromSequence (it->second, m_nextTxSequence);
+	} else {
+		return false;
 	}
 
-
-    switch(nextSubFlow)
+    switch(m_lastUsedsFlowIdx)
     {
     case 0:
     	data1+=it->second;
@@ -155,8 +136,7 @@ MpRoundRobin::GetPacket(std::vector<Ptr<TcpSocketBase> > sockets)
     	break;
     }
 
-	return Create<Packet>();
-
+    return false;
 }
 
 
@@ -191,20 +171,7 @@ MpRoundRobin::GetLanda(uint32_t channel)
 
 }
 
-void
-MpRoundRobin::SetNextSequence(SequenceNumber64 seq)
-{
-	m_nextTxSequence = seq;
-}
 
-int
-MpRoundRobin::GetSubflowToUse()
-{
-	NS_LOG_FUNCTION(this<<nextSubFlow);
-
-
-    return nextSubFlow;
-}
 
 
 void

@@ -1,12 +1,19 @@
 ## -*- Mode: python; py-indent-offset: 4; indent-tabs-mode: nil; coding: utf-8; -*-
 
+#def configure(conf):
+#	conf.env.append_value("LINKFLAGS", ["-lcryptopp"])
+def configure(conf):
+     conf.env['cryptopp'] = conf.check(mandatory=True, lib='cryptopp', uselib_store='CRYPTO')
 def build(bld):
-
     module = bld.create_ns3_module('tools', ['network', 'stats'])
+    module.use.append("CRYPTO")
     module.source = [
         'model/event-garbage-collector.cc',
         'model/gnuplot.cc',
         'model/delay-jitter-estimation.cc',
+        'model/stat-watch.cc',
+        'model/throughput-watch.cc',  
+        'model/sha-digest.cc'     
         ]
 
     module_test = bld.create_ns3_module_test_library('tools')
@@ -22,9 +29,13 @@ def build(bld):
         'model/event-garbage-collector.h',
         'model/gnuplot.h',
         'model/delay-jitter-estimation.h',
+        'model/stat-watch.h',
+        'model/throughput-watch.h', 
+        'model/sha-digest.h',
         ]
 
     if (bld.env['ENABLE_EXAMPLES']):
         bld.add_subdirs('examples')
+
 
     bld.ns3_python_bindings()

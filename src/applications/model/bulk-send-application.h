@@ -31,7 +31,6 @@ namespace ns3 {
 
 class Address;
 class Socket;
-//class MpTcpSocket;
 
 /**
  * \ingroup applications
@@ -92,8 +91,6 @@ private:
   uint32_t        m_maxBytes;     // Limit total number of bytes sent
   uint32_t        m_totBytes;     // Total bytes sent so far
   TypeId          m_tid;
-  TypeId	  	  m_socketType;
-  TypeId		  m_congestion;
   TracedCallback<Ptr<const Packet> > m_txTrace;
 
 private:

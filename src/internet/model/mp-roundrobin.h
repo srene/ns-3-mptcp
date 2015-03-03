@@ -29,19 +29,17 @@ public:
 	MpRoundRobin(SequenceNumber64 nextTxSequence);
 
 	virtual ~MpRoundRobin();
-	//virtual int Add(Ptr<Packet> packet);
-	virtual int Add(Ptr<Packet> packet,uint32_t subflow);
 	virtual int Discard(SequenceNumber64 seq);
-	virtual Ptr<Packet> GetPacket(std::vector<Ptr<TcpSocketBase> > sockets);
-	virtual void SetNextSequence(SequenceNumber64 seq);
-	//virtual int GetSubflowToUse(SequenceNumber64 seq, std::vector<Ptr<TcpSocketBase> > sockets,uint32_t lastUsedsFlowIdx);
-	virtual int GetSubflowToUse();
-	void SetSndBufSize (uint32_t size);
-	uint32_t GetSndBufSize (void) const;
+	virtual bool GetPacket(std::vector<Ptr<TcpSocketBase> > sockets);
+	//void SetSndBufSize (uint32_t size);
+	//uint32_t GetSndBufSize (void) const;
 	double GetLanda(uint32_t channel);
-	void SetMtu(uint32_t mtu);
 private:
 	virtual void  Update(std::vector<Ptr<TcpSocketBase> > sockets);
+
+	uint32_t c1;
+	uint32_t c2;
+	uint32_t c3;
 
 	  double m_landaRate;
 	  double m_lastSampleLanda;
@@ -49,9 +47,10 @@ private:
 	  Time t;
 	  uint32_t data;
 
-	  uint32_t m_mtu;
+	  uint32_t m_landa1Rate;
+	  uint32_t m_landa2Rate;
+	  uint32_t m_landa3Rate;
 
-	  uint32_t nextSubFlow;
 
 	  uint32_t data1;
 	  uint32_t data2;

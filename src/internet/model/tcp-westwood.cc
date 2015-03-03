@@ -60,7 +60,7 @@ TcpWestwood::GetTypeId (void)
                     EnumValue(TcpWestwood::TUSTIN), MakeEnumAccessor(&TcpWestwood::m_fType),
                     MakeEnumChecker(TcpWestwood::NONE, "None", TcpWestwood::TUSTIN, "Tustin"))
       .AddAttribute("ProtocolType", "Use this to let the code run as Westwood or WestwoodPlus",
-                    EnumValue(TcpWestwood::WESTWOOD),
+                    EnumValue(TcpWestwood::WESTWOODPLUS),
                     MakeEnumAccessor(&TcpWestwood::m_pType),
                     MakeEnumChecker(TcpWestwood::WESTWOOD, "Westwood",TcpWestwood::WESTWOODPLUS, "WestwoodPlus"))
       .AddTraceSource("EstimatedBW", "The estimated bandwidth",
@@ -155,6 +155,13 @@ TcpWestwood::GetCurrentBw (void)
 	return m_lastBW;
 }
 
+double
+TcpWestwood::GetLastBw (void)
+{
+	//NS_LOG_FUNCTION(this << m_currentBW);
+	return m_currentBW;
+}
+
 Time
 TcpWestwood::GetMinRtt (void)
 {
@@ -244,6 +251,8 @@ TcpWestwood::EstimateBW (int acked, const TcpHeader& tcpHeader, Time rtt)
   NS_LOG_LOGIC(m_currentBW);
   // Filter the BW sample
   Filtering();
+  NS_LOG_LOGIC(m_lastBW);
+
 }
 
 int

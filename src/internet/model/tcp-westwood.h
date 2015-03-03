@@ -68,6 +68,7 @@ public:
   TcpWestwood (const TcpWestwood& sock);
   virtual ~TcpWestwood (void);
   virtual double GetCurrentBw(void);
+  virtual double GetLastBw(void);
   virtual Time GetMinRtt(void);
   enum ProtocolType 
   {

@@ -4,8 +4,12 @@ def build(bld):
     module = bld.create_ns3_module('applications', ['internet', 'config-store', 'tools'])
     module.source = [
         'model/bulk-send-application.cc',
+        'model/bulk-send-mp-application.cc',        
+        'model/bulk-send-mp-application2.cc',        
         'model/onoff-application.cc',
         'model/packet-sink.cc',
+        'model/packet-mp-sink.cc',                
+ #       'model/mp-tcp-packet-sink.cc',        
         'model/ping6.cc',
         'model/radvd.cc',
         'model/radvd-interface.cc',
@@ -19,12 +23,16 @@ def build(bld):
         'model/udp-echo-server.cc',
         'model/v4ping.cc',
         'helper/bulk-send-helper.cc',
+        'helper/bulk-mp-send-helper.cc', 
+        'helper/bulk-mp-send-helper2.cc',                     
         'helper/on-off-helper.cc',
         'helper/packet-sink-helper.cc',
+        'helper/packet-mp-sink-helper.cc',        
         'helper/ping6-helper.cc',
         'helper/udp-client-server-helper.cc',
         'helper/udp-echo-helper.cc',
         'helper/v4ping-helper.cc',
+        #'helper/mp-packet-sink-helper.cc',
         ]
 
     applications_test = bld.create_ns3_module_test_library('applications')
@@ -36,8 +44,12 @@ def build(bld):
     headers.module = 'applications'
     headers.source = [
         'model/bulk-send-application.h',
+        'model/bulk-send-mp-application.h',  
+        'model/bulk-send-mp-application2.h',                                      
         'model/onoff-application.h',
         'model/packet-sink.h',
+        'model/packet-mp-sink.h',        
+   #     'model/mp-tcp-packet-sink.h',                
         'model/ping6.h',
         'model/radvd.h',
         'model/radvd-interface.h',
@@ -51,12 +63,16 @@ def build(bld):
         'model/udp-echo-server.h',
         'model/v4ping.h',
         'helper/bulk-send-helper.h',
+        'helper/bulk-mp-send-helper.h',   
+        'helper/bulk-mp-send-helper2.h',                                   
         'helper/on-off-helper.h',
         'helper/packet-sink-helper.h',
+        'helper/packet-mp-sink-helper.h',                
         'helper/ping6-helper.h',
         'helper/udp-client-server-helper.h',
         'helper/udp-echo-helper.h',
         'helper/v4ping-helper.h',
+    #    'helper/mp-packet-sink-helper.h',       
         ]
 
     bld.ns3_python_bindings()

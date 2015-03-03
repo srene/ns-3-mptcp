@@ -45,12 +45,8 @@ typedef std::pair<SequenceNumber64,uint32_t> SizePair;
 typedef std::map<SequenceNumber64,uint32_t> SizeMap;
 
 
-typedef enum {
-  Round_Robin,        // 0
-  Water_Filling,
-  Wardrop
-  } DataDistribAlgo_t;
-
+//class TcpSocketBase;
+//typedef Callback<void, Ptr<Packet>, Address &> PacketCallback;
 
 /**
  * \ingroup socket
@@ -78,7 +74,11 @@ public:
 
   void SetSubflowCallback (Callback<void, Ptr<Packet> > socketSubflow);
   void SetRecvCallback (Callback<void, Ptr<Packet>,SequenceNumber64, Ptr<TcpSocketBase> > socketRecv);
+  void SetSuccedCallback(Callback<void>);
+  void SetTraceCallback(Callback<void>);
 
+  SequenceNumber64 GetNextSequence (Ptr<TcpSocketBase> tcpSocketBase, const SequenceNumber32& seq);
+  void SetScheduler(Ptr<MpScheduler> mp);
   void SetSubflow (uint8_t subflow,uint32_t size);
   void CloseSubflow(InetSocketAddress socket);
   int Discard (SequenceNumber64 ack);
@@ -94,25 +94,40 @@ public:
   virtual void SetRemoteKey(uint64_t);
   virtual uint64_t GetLocalKey (void);
   virtual uint64_t GetRemoteKey (void);
+  virtual void Join2(TypeId congestion);
   virtual void Join(InetSocketAddress socket, TypeId congestion);
+  //virtual void Join(InetSocketAddress socket);
   virtual int Send (Ptr<Packet> p, uint32_t flags);  // Call by app to send data to network
   virtual Ptr<Packet> Recv (uint32_t maxSize, uint32_t flags); // Return a packet to be forwarded to app
   virtual Ptr<Packet> RecvFrom (uint32_t maxSize, uint32_t flags, Address &fromAddress); // ... and write the remote address at fromAddress
   virtual bool GetTcpMpCapable();
   virtual int NotifySubflowConnectionSucceeded(Ptr<TcpSocketBase> socket);
+  //virtual uint32_t GetTxAvailable (void) const;
+  void SetSndBufSize (uint32_t size);
+  uint32_t GetSndBufSize (void) const;
   void SetRcvBufSize (uint32_t size);
-  DataDistribAlgo_t GetDistribAlgo (void) const;
-  void SetDistribAlgo (DataDistribAlgo_t distribAlgo);
+  //DataDistribAlgo_t GetDistribAlgo (void) const;
+  //void SetDistribAlgo (DataDistribAlgo_t distribAlgo);
   uint32_t GetRcvBufSize (void) const;
   TypeId GetSocketTypeId();
   uint32_t GetCwndTotal(void);
+  //void CalculateCwndTotal(double cwnd);
   double GetAlpha(void);
   uint32_t AdvertisedWindowSize ();
   Ptr<MpScheduler> GetScheduler();
-
+  //void SetCallback(PacketCallback callback);
+  void SetAck(void);
+  //void CalculateAlpha(double alpha);
+  // Literal names of TCP states for use in log messages */
+  //static const char* const MpTcpStateName[LAST_STATE];
+  //uint32_t Size(Ptr<TcpSocketBase> tcpSocketBase);
 
 private:
+  int SendPacket(uint32_t flags);
+  //void Waterfilling(std::vector<double> bwe);
   bool SocketCanSend(Ptr<TcpSocketBase> socket);
+  //int GetSubflowToUse (SequenceNumber64 seq);
+  //TcpTxBuffer64  m_txBuffer;       //< Tx buffer
   TcpRxBuffer64  m_rxBuffer;
   TracedValue<TcpStates_t> m_state;         //< TCP state
 
@@ -124,10 +139,15 @@ private:
   // Rx and Tx buffer management
   TracedValue<SequenceNumber64> m_nextTxSequence; //< Next seqnum to be sent (SND.NXT), ReTx pushes it back
   TracedValue<SequenceNumber64> m_highTxMark;     //< Highest seqno ever sent, regardless of ReTx
-  DataDistribAlgo_t m_distribAlgo;
+  //DataDistribAlgo_t m_distribAlgo;
+  uint32_t m_sched;
   TypeId m_socketTypeId;
-  uint32_t m_segmentSize;
+  //int   m_lastUsedsFlowIdx;
+  //SequenceNumber64 lastDiscarded;
+  //uint32_t m_segmentSize;
+  uint32_t m_ack;
   SeqMap seqTx;
+  //SeqMap2 seqTx2;
 
   TracedCallback<Ptr<const Packet>, const Address &> m_packetRxTrace;
   TracedCallback<Ptr<TcpSocketBase> > m_joined;
@@ -151,8 +171,16 @@ private:
   uint32_t data;
 
   TracedCallback<Ptr<const Packet> > m_drop;
+  //TracedCallback<> m_connected;
+  Callback<void> m_connected;
+  Callback<void> m_trace;
 
   bool succeed;
+
+  uint32_t m_maxBuffsize;
+  TracedValue<uint32_t> m_buffsize;
+
+
 };
 
 } // namespace ns3

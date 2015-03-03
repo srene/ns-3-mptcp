@@ -210,6 +210,8 @@ public:
   virtual void SetCompressedBlockAckTimeout (Time blockAckTimeout);
   virtual Time GetCompressedBlockAckTimeout (void) const;
 
+  virtual uint16_t GetStaNumberConnected(void) const;
+
 protected:
   virtual void DoStart ();
   virtual void DoDispose ();

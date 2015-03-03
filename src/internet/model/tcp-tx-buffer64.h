@@ -39,6 +39,9 @@ class Packet;
  */
 class TcpTxBuffer64 : public Object
 {
+typedef std::map<SequenceNumber64,Ptr<Packet> > DataMap;
+typedef std::pair<SequenceNumber64,Ptr<Packet> > DataPair;
+
 public:
   static TypeId GetTypeId (void);
   TcpTxBuffer64 (uint32_t n = 0);
@@ -85,11 +88,6 @@ public:
   bool Add (Ptr<Packet> p);
 
   /**
-   * Returns the number of bytes from the buffer in the range [seq, tailSequence)
-   */
-  int SizeFromSequence (const SequenceNumber64& seq) const;
-
-  /**
    * Copy data of size numBytes into a packet, data from the range [seq, seq+numBytes)
    */
   Ptr<Packet> CopyFromSequence (uint32_t numBytes, const SequenceNumber64& seq);
@@ -107,15 +105,18 @@ public:
    */
   void DiscardUpTo (const SequenceNumber64& seq);
 
-  void Remove (const SequenceNumber64& seq,uint32_t size);
+  void Remove (const SequenceNumber64& seq);
 
 private:
-  typedef std::list<Ptr<Packet> >::iterator BufIterator;
+  typedef DataMap::iterator BufIterator;
 
   TracedValue<SequenceNumber64> m_firstByteSeq; //< Sequence number of the first byte in data (SND.UNA)
   uint32_t m_size;                              //< Number of data bytes
   uint32_t m_maxBuffer;                         //< Max number of data bytes in buffer (SND.WND)
-  std::list<Ptr<Packet> > m_data;               //< Corresponding data (may be null)
+  //std::list<Ptr<Packet> > m_data;               //< Corresponding data (may be null)
+  DataMap m_data;
+  TracedValue<SequenceNumber64> m_lastByteSeq; //< Sequence number of the first byte in data (SND.UNA)
+
 };
 
 } // namepsace ns3

@@ -56,7 +56,7 @@ PacketSink::GetTypeId (void)
                    MakeTypeIdAccessor (&PacketSink::m_tid),
                    MakeTypeIdChecker ())
    .AddAttribute ("SocketType", "The type of protocol to use.",
-			   TypeIdValue (MpTcpSocket::GetTypeId ()),
+			   TypeIdValue (TcpSocket::GetTypeId ()),
 			   MakeTypeIdAccessor (&PacketSink::m_socketType),
 			   MakeTypeIdChecker ())
    .AddAttribute ("Congestion", "The type of protocol to use.",
@@ -118,7 +118,8 @@ void PacketSink::StartApplication ()    // Called at time specified by Start
   // Create the socket if not already
   if (!m_socket)
     {
-      m_socket = Socket::CreateSocket (GetNode (), m_tid,m_socketType,m_congestion);
+	  if(m_tid==UdpSocketFactory::GetTypeId ())m_socket = Socket::CreateSocket (GetNode (), m_tid);
+	  else m_socket = Socket::CreateSocket (GetNode (), m_tid,m_socketType,m_congestion);
       m_socket->Bind (m_local);
       m_socket->Listen ();
       m_socket->ShutdownSend ();

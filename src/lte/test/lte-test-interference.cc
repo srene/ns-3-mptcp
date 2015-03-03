@@ -24,9 +24,10 @@
 #include "ns3/string.h"
 #include "ns3/double.h"
 #include <ns3/enum.h>
-
+#include "ns3/boolean.h"
 #include "ns3/mobility-helper.h"
 #include "ns3/lte-helper.h"
+#include "ns3/ff-mac-scheduler.h"
 
 #include "ns3/lte-enb-phy.h"
 #include "ns3/lte-enb-net-device.h"
@@ -97,8 +98,8 @@ LteInterferenceTestCase::LteInterferenceTestCase (std::string name, double d1, d
   : TestCase (name),
     m_d1 (d1),
     m_d2 (d2),
-    m_dlSinrDb (10 * log10 (dlSinr)),
-    m_ulSinrDb (10 * log10 (ulSinr)),
+    m_dlSinrDb (10 * std::log10 (dlSinr)),
+    m_ulSinrDb (10 * std::log10 (ulSinr)),
     m_dlSe (dlSe),
     m_ulSe (ulSe),
     m_dlMcs (dlMcs),
@@ -113,6 +114,8 @@ LteInterferenceTestCase::~LteInterferenceTestCase ()
 void
 LteInterferenceTestCase::DoRun (void)
 {
+  Config::SetDefault ("ns3::LteSpectrumPhy::CtrlErrorModelEnabled", BooleanValue (false));
+  Config::SetDefault ("ns3::LteSpectrumPhy::DataErrorModelEnabled", BooleanValue (false));
   Config::SetDefault ("ns3::LteAmc::AmcModel", EnumValue (LteAmc::PiroEW2010));
   Config::SetDefault ("ns3::LteAmc::Ber", DoubleValue (0.00005));
   Ptr<LteHelper> lteHelper = CreateObject<LteHelper> ();
@@ -153,6 +156,7 @@ LteInterferenceTestCase::DoRun (void)
   NetDeviceContainer ueDevs1;
   NetDeviceContainer ueDevs2;
   lteHelper->SetSchedulerType ("ns3::RrFfMacScheduler");
+  lteHelper->SetSchedulerAttribute ("UlCqiFilter", EnumValue (FfMacScheduler::PUSCH_UL_CQI));
   enbDevs = lteHelper->InstallEnbDevice (enbNodes);
   ueDevs1 = lteHelper->InstallUeDevice (ueNodes1);
   ueDevs2 = lteHelper->InstallUeDevice (ueNodes2);
@@ -172,11 +176,11 @@ LteInterferenceTestCase::DoRun (void)
 
   Ptr<LtePhy> ue1Phy = ueDevs1.Get (0)->GetObject<LteUeNetDevice> ()->GetPhy ()->GetObject<LtePhy> ();
   Ptr<LteTestSinrChunkProcessor> testDlSinr1 = Create<LteTestSinrChunkProcessor> (ue1Phy);
-  ue1Phy->GetDownlinkSpectrumPhy ()->AddSinrChunkProcessor (testDlSinr1);
+  ue1Phy->GetDownlinkSpectrumPhy ()->AddDataSinrChunkProcessor (testDlSinr1);
 
   Ptr<LtePhy> enb1phy = enbDevs.Get (0)->GetObject<LteEnbNetDevice> ()->GetPhy ()->GetObject<LtePhy> ();
   Ptr<LteTestSinrChunkProcessor> testUlSinr1 = Create<LteTestSinrChunkProcessor> (enb1phy);
-  enb1phy->GetUplinkSpectrumPhy ()->AddSinrChunkProcessor (testUlSinr1);
+  enb1phy->GetUplinkSpectrumPhy ()->AddDataSinrChunkProcessor (testUlSinr1);
 
   Config::Connect ("/NodeList/0/DeviceList/0/LteEnbMac/DlScheduling",
                    MakeBoundCallback (&LteTestDlSchedulingCallback, this));
@@ -189,11 +193,11 @@ LteInterferenceTestCase::DoRun (void)
   
   Ptr<LtePhy> ue2Phy = ueDevs2.Get (0)->GetObject<LteUeNetDevice> ()->GetPhy ()->GetObject<LtePhy> ();
   Ptr<LteTestSinrChunkProcessor> testDlSinr2 = Create<LteTestSinrChunkProcessor> (ue2Phy);
-  ue2Phy->GetDownlinkSpectrumPhy ()->AddSinrChunkProcessor (testDlSinr2);
+  ue2Phy->GetDownlinkSpectrumPhy ()->AddDataSinrChunkProcessor (testDlSinr2);
 
   Ptr<LtePhy> enb2phy = enbDevs.Get (1)->GetObject<LteEnbNetDevice> ()->GetPhy ()->GetObject<LtePhy> ();
   Ptr<LteTestSinrChunkProcessor> testUlSinr2 = Create<LteTestSinrChunkProcessor> (enb2phy);
-  enb1phy->GetUplinkSpectrumPhy ()->AddSinrChunkProcessor (testUlSinr2);
+  enb1phy->GetUplinkSpectrumPhy ()->AddDataSinrChunkProcessor (testUlSinr2);
 
   Config::Connect ("/NodeList/1/DeviceList/0/LteEnbMac/DlScheduling",
                    MakeBoundCallback (&LteTestDlSchedulingCallback, this));
@@ -206,16 +210,16 @@ LteInterferenceTestCase::DoRun (void)
   Simulator::Run ();
   
 
-  double dlSinr1Db = 10.0 * log10 (testDlSinr1->GetSinr ()->operator[] (0));
+  double dlSinr1Db = 10.0 * std::log10 (testDlSinr1->GetSinr ()->operator[] (0));
   NS_TEST_ASSERT_MSG_EQ_TOL (dlSinr1Db, m_dlSinrDb, 0.01, "Wrong SINR in DL! (eNB1 --> UE1)");
 
-  double ulSinr1Db = 10.0 * log10 (testUlSinr1->GetSinr ()->operator[] (0));
+  double ulSinr1Db = 10.0 * std::log10 (testUlSinr1->GetSinr ()->operator[] (0));
   NS_TEST_ASSERT_MSG_EQ_TOL (ulSinr1Db, m_ulSinrDb, 0.01, "Wrong SINR in UL!  (UE1 --> eNB1)");
 
-  double dlSinr2Db = 10.0 * log10 (testDlSinr2->GetSinr ()->operator[] (0));
+  double dlSinr2Db = 10.0 * std::log10 (testDlSinr2->GetSinr ()->operator[] (0));
   NS_TEST_ASSERT_MSG_EQ_TOL (dlSinr2Db, m_dlSinrDb, 0.01, "Wrong SINR in DL! (eNB2 --> UE2)");
   
-  double ulSinr2Db = 10.0 * log10 (testUlSinr2->GetSinr ()->operator[] (0));
+  double ulSinr2Db = 10.0 * std::log10 (testUlSinr2->GetSinr ()->operator[] (0));
   NS_TEST_ASSERT_MSG_EQ_TOL (ulSinr2Db, m_ulSinrDb, 0.01, "Wrong SINR in UL!  (UE2 --> eNB2)");
 
   Simulator::Destroy ();
@@ -247,7 +251,7 @@ LteInterferenceTestCase::UlScheduling (uint32_t frameNo, uint32_t subframeNo, ui
    *    For first 5 subframeNo in the first frameNo, the MCS cannot be properly evaluated,
    *    because CQI feedback is still not available at the eNB.
    */
-  if ( (frameNo > 1) && (subframeNo > 4) )
+  if ( (frameNo > 1) && (subframeNo > 6) )
     {
       NS_TEST_ASSERT_MSG_EQ ((uint16_t)mcs, m_ulMcs, "Wrong UL MCS");
     }

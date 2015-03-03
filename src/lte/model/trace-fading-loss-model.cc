@@ -155,12 +155,15 @@ TraceFadingLossModel::DoCalcRxPowerSpectralDensity (
     {
       if (Simulator::Now ().GetSeconds () >= m_lastWindowUpdate.GetSeconds () + m_windowSize.GetSeconds ())
         {
-          NS_LOG_INFO ("Fading Window Updated");
-          std::map <ChannelRealizationId_t, Ptr<UniformRandomVariable> >::iterator itVar;
-
-        itVar = m_startVariableMap.find (mobilityPair);
-        (*itOff).second = (*itVar).second->GetValue ();
-
+          // update all the offsets
+          NS_LOG_INFO ("Fading Windows Updated");
+          std::map <ChannelRealizationId_t, int >::iterator itOff2;
+          for (itOff2 = m_windowOffsetsMap.begin (); itOff2 != m_windowOffsetsMap.end (); itOff2++)
+            {
+              std::map <ChannelRealizationId_t, Ptr<UniformRandomVariable> >::iterator itVar;
+              itVar = m_startVariableMap.find ((*itOff2).first);
+              (*itOff2).second = (*itVar).second->GetValue ();
+            }
           m_lastWindowUpdate = Simulator::Now ();
         }
     }
@@ -182,13 +185,13 @@ TraceFadingLossModel::DoCalcRxPowerSpectralDensity (
   //Vector aSpeedVector = a->GetVelocity ();
   //Vector bSpeedVector = b->GetVelocity ();
   
-  //double speed = sqrt (pow (aSpeedVector.x-bSpeedVector.x,2) +  pow (aSpeedVector.y-bSpeedVector.y,2));
+  //double speed = std::sqrt (std::pow (aSpeedVector.x-bSpeedVector.x,2) + std::pow (aSpeedVector.y-bSpeedVector.y,2));
 
   NS_LOG_LOGIC (this << *rxPsd);
   NS_ASSERT (!m_fadingTrace.empty ());
   int now_ms = static_cast<int> (Simulator::Now ().GetMilliSeconds () * m_timeGranularity);
   int lastUpdate_ms = static_cast<int> (m_lastWindowUpdate.GetMilliSeconds () * m_timeGranularity);
-  int index = (*itOff).second + now_ms - lastUpdate_ms;
+  int index = ((*itOff).second + now_ms - lastUpdate_ms) % m_samplesNum;
   int subChannel = 0;
   while (vit != rxPsd->ValuesEnd ())
     {
@@ -196,13 +199,13 @@ TraceFadingLossModel::DoCalcRxPowerSpectralDensity (
       if (*vit != 0.)
         {
           double fading = m_fadingTrace.at (subChannel).at (index);
-          //NS_LOG_INFO (this << " offset " << (*itOff).second << " fading " << fading);
+          NS_LOG_INFO (this << " FADING now " << now_ms << " offset " << (*itOff).second << " id " << index << " fading " << fading);
           double power = *vit; // in Watt/Hz
-          power = 10 * log10 (180000 * power); // in dB
+          power = 10 * std::log10 (180000 * power); // in dB
 
           NS_LOG_LOGIC (this << subChannel << *vit  << power << fading);
 
-          *vit = pow (10., ((power + fading) / 10)) / 180000; // in Watt
+          *vit = std::pow (10., ((power + fading) / 10)) / 180000; // in Watt
 
           NS_LOG_LOGIC (this << subChannel << *vit);
 

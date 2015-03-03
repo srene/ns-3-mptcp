@@ -148,7 +148,7 @@ TcpSocketBase::GetTypeId (void)
                     MakeBooleanChecker ())
      .AddAttribute ("PersistTimeout",
                     "Persist timeout to probe for rx window",
-                    TimeValue (Seconds (6)),
+                    TimeValue (Seconds (0.1)),
                     MakeTimeAccessor (&TcpSocketBase::GetPersistTimeout,
                                       &TcpSocketBase::SetPersistTimeout),
                     MakeTimeChecker ())
@@ -182,10 +182,13 @@ TcpSocketBase::GetTypeId (void)
 	 .AddTraceSource ("Buffer",
 					  "Remote side's flow control window",
 					  MakeTraceSourceAccessor (&TcpSocketBase::m_buffsize))
-	// .AddTraceSource("LandaRate", "The data sent rate",
-     //        	   MakeDoubleAccessor (&TcpSocketBase::GetLanda,
-      //       			   	   	   	   &TcpSocketBase::SetLanda),
-      //       			   	   	MakeDoubleChecker<double> (0));
+	 .AddTraceSource ("Assigned",
+					  "Remote side's flow control window",
+					  MakeTraceSourceAccessor (&TcpSocketBase::m_assize))
+	 .AddTraceSource ("Rx",
+					  "Remote side's flow control window",
+					  MakeTraceSourceAccessor (&TcpSocketBase::m_rxTrace))
+
   ;
   return tid;
 }
@@ -202,11 +205,11 @@ TcpSocketBase::TcpSocketBase (void)
     // Change this for non-zero initial sequence number
     m_highTxMark (0),
     m_rxBuffer (0),
-    m_txBuffer (0),
+    m_txBuffer (0,this),
     m_lastSeq (0),
     m_size (0),
-    m_fragment(false),
-    //m_prevSeq(0),
+    /*m_fragment(false),
+    m_prevSeq(0),
     m_frag(0),
     m_cumfrag(0),
     m_cumsize(0),
@@ -214,7 +217,7 @@ TcpSocketBase::TcpSocketBase (void)
     m_frag2(0),
     m_cumfrag2(0),
     m_cumsize2(0),
-    m_numfrags(1),
+    m_numfrags(1),*/
     m_state (CLOSED),
     m_errno (Socket::ERROR_NOTERROR),
     m_closeNotified (false),
@@ -236,9 +239,11 @@ TcpSocketBase::TcpSocketBase (void)
     m_dataSeq(0),
     m_dataAck(0),
     m_sndscale(0),
-    m_buffsize(0)
+    m_buffsize(0),
+    m_maxBuffsize(0)
 {
   NS_LOG_FUNCTION (this << GetInstanceTypeId ());
+  //m_txBuffer = TcpTxBufferWrapper(0,this);
 }
 
 TcpSocketBase::TcpSocketBase (const TcpSocketBase& sock)
@@ -263,8 +268,8 @@ TcpSocketBase::TcpSocketBase (const TcpSocketBase& sock)
     m_txBuffer (sock.m_txBuffer),
     m_lastSeq (sock.m_lastSeq),
     m_size (sock.m_size),
-    m_fragment(sock.m_fragment),
-    //m_prevSeq(sock.m_prevSeq),
+    /*m_fragment(sock.m_fragment),
+    m_prevSeq(sock.m_prevSeq),
     m_frag(sock.m_frag),
     m_cumfrag(sock.m_cumfrag),
     m_cumsize(sock.m_cumsize),
@@ -272,7 +277,7 @@ TcpSocketBase::TcpSocketBase (const TcpSocketBase& sock)
     m_frag2(sock.m_frag2),
     m_cumfrag2(sock.m_cumfrag2),
     m_cumsize2(sock.m_cumsize2),
-    m_numfrags(sock.m_numfrags),
+    m_numfrags(sock.m_numfrags),*/
     m_state (sock.m_state),
     m_errno (sock.m_errno),
     m_closeNotified (sock.m_closeNotified),
@@ -294,7 +299,8 @@ TcpSocketBase::TcpSocketBase (const TcpSocketBase& sock)
     m_dataAck(sock.m_dataAck),
     m_sndscale(sock.m_sndscale),
     m_rcvscale(sock.m_rcvscale),
-    m_buffsize(sock.m_buffsize)
+    m_buffsize(sock.m_buffsize),
+    m_maxBuffsize(sock.m_maxBuffsize)
 {
   NS_LOG_FUNCTION (this);
   NS_LOG_LOGIC ("Invoked the copy constructor" << GetInstanceTypeId () << " " << m_socket->GetTcpMpCapable());
@@ -746,7 +752,7 @@ TcpSocketBase::DoForwardUp (Ptr<Packet> packet, Ipv4Header header, uint16_t port
   NS_LOG_FUNCTION (this << tcpHeader << " " << m_rWnd.Get () << tcpHeader.GetWindowSize());
 
   // Update Rx window size, i.e. the flow control window
-  if (m_rWnd.Get () == 0 && tcpHeader.GetWindowSize () != 0)
+  if (m_rWnd.Get () < m_segmentSize && tcpHeader.GetWindowSize () != 0)
     { // persist probes end
       NS_LOG_LOGIC (this << " Leaving zerowindow persist state");
       m_persistEvent.Cancel ();
@@ -845,7 +851,7 @@ TcpSocketBase::DoForwardUp (Ptr<Packet> packet, Ipv6Address saddr, Ipv6Address d
   ReadOptions (tcpHeader);
 
   // Update Rx window size, i.e. the flow control window
-  if (m_rWnd.Get () == 0 && tcpHeader.GetWindowSize () != 0)
+  if (m_rWnd.Get () < m_segmentSize && tcpHeader.GetWindowSize () != 0)
     { // persist probes end
       NS_LOG_LOGIC (this << " Leaving zerowindow persist state");
       m_persistEvent.Cancel ();
@@ -1151,6 +1157,7 @@ TcpSocketBase::ProcessSynSent (Ptr<Packet> packet, const TcpHeader& tcpHeader)
       m_rxBuffer.SetNextRxSequence (tcpHeader.GetSequenceNumber () + SequenceNumber32 (1));
       m_highTxMark = ++m_nextTxSequence;
       m_txBuffer.SetHeadSequence (m_nextTxSequence);
+
       SendEmptyPacket (TcpHeader::ACK);
       Simulator::ScheduleNow (&TcpSocketBase::ConnectionSucceeded, this);
       SendPendingData (m_connected);
@@ -1439,6 +1446,8 @@ TcpSocketBase::PeerClose (Ptr<Packet> p, const TcpHeader& tcpHeader)
 void
 TcpSocketBase::DoPeerClose (void)
 {
+	  //NS_LOG_INFO (TcpStateName[m_state] << " -> CLOSE_WAIT");
+
   NS_ASSERT (m_state == ESTABLISHED || m_state == SYN_RCVD);
 
   // Move the state to CLOSE_WAIT
@@ -1785,6 +1794,8 @@ TcpSocketBase::ConnectionSucceeded ()
   m_succeed = true;
   if(!m_socket->GetSucceed())m_socket->NotifyConnectionSucceeded ();
   if(m_socket->GetTcpMpCapable())m_socket->NotifySubflowConnectionSucceeded(this) ;
+  if(m_socket->GetTcpMpCapable())m_socket->GetObject<MpTcpSocket>()->SetAck();
+
   // The if-block below was moved from ProcessSynSent() to here because we need
   // to invoke the NotifySend() only after NotifyConnectionSucceeded() to
   // reflect the behaviour in the real world.
@@ -1802,7 +1813,7 @@ TcpSocketBase::SetSucceed()
 }
 
 
-int
+/*int
 TcpSocketBase::Send (Ptr<Packet> p, SequenceNumber64 seq, uint32_t flags)
 {
 
@@ -1819,7 +1830,7 @@ TcpSocketBase::Send (Ptr<Packet> p, SequenceNumber64 seq, uint32_t flags)
 	      //m_socket->SetError(Socket::ERROR_MSGSIZE);
 		  NS_LOG_LOGIC("Buffer full");
 		  m_errno = Socket::ERROR_MSGSIZE;
-		  return 0;
+		  return -1;
 		}
 	  m_buffsize = m_txBuffer.Size();
 	  NS_LOG_LOGIC("TailSeq " << m_txBuffer.TailSequence());
@@ -1842,24 +1853,31 @@ TcpSocketBase::Send (Ptr<Packet> p, SequenceNumber64 seq, uint32_t flags)
 	  return -1; // Send failure
 	}
   return -1;
-}
+}*/
 
 int
 TcpSocketBase::Send (Ptr<Packet> p, uint32_t flags)
 {
-  NS_LOG_FUNCTION (this << p << p->GetSize());
+  NS_LOG_FUNCTION (this << p << p->GetSize() << m_txBuffer.Size ());
+  m_buffsize = m_txBuffer.Size();
+  m_assize = m_txBuffer.SizeFromSequence (m_nextTxSequence);
   NS_ABORT_MSG_IF (flags, "use of flags is not supported in TcpSocket::Send()");
   if (m_state == ESTABLISHED || m_state == SYN_SENT || m_state == CLOSE_WAIT)
 	{
 	  NS_LOG_LOGIC("Established syn_sent or close_wait");
 
 	  // Store the packet into Tx buffer
-	  if (!m_txBuffer.Add (p))
-		{ // TxBuffer overflow, send failed
-	      //m_socket->SetError(Socket::ERROR_MSGSIZE);
-		  m_errno = Socket::ERROR_MSGSIZE;
-		  return -1;
-		}
+	  if(!m_socket->GetTcpMpCapable()){
+		  if (!m_txBuffer.Add (p))
+			{
+			  NS_LOG_LOGIC("Buffer full");
+			  // TxBuffer overflow, send failed
+		      //m_socket->SetError(Socket::ERROR_MSGSIZE);
+			  m_errno = Socket::ERROR_MSGSIZE;
+			  return -1;
+			}
+	  }
+
 	  // Submit the data to lower layers
 	  NS_LOG_LOGIC ("txBufSize=" << m_txBuffer.Size () << " state " << TcpStateName[m_state]);
 
@@ -1884,22 +1902,12 @@ uint32_t
 TcpSocketBase::SendDataPacket (SequenceNumber32 seq, uint32_t maxSize, bool withAck)
 {
 
-  //CalculateFragDss(seq-m_frag2,maxSize);
-  //NS_LOG_FUNCTION (this << seq << maxSize << withAck << m_numfrags << m_cumsize2 << m_cumfrag2 << m_txBuffer.TailSequence());
-  Ptr<Packet> p;
-  //if(m_numfrags<4) p = m_txBuffer.CopyFromSequence (maxSize, seq);
-  //else p = m_txBuffer.CopyFromSequence (maxSize-m_cumfrag2, seq);
-  p = m_txBuffer.CopyFromSequence (CalculateFragDss(seq), seq);
-  NS_LOG_FUNCTION (this << seq << p->GetSize() << m_txBuffer.TailSequence());
+	  Ptr<Packet> p = m_txBuffer.CopyFromSequence (maxSize, seq);
+	  uint32_t sz = p->GetSize (); // Size of packet
+	  uint8_t flags = withAck ? TcpHeader::ACK : 0;
+	  uint32_t remainingData = m_txBuffer.SizeFromSequence (seq + SequenceNumber32 (sz));
 
-  m_numfrags = 1;
-  uint32_t sz = p->GetSize (); // Size of packet
-
-  NS_LOG_FUNCTION (this << sz);
-
-  uint8_t flags = withAck ? TcpHeader::ACK : 0;
-  uint32_t remainingData = m_txBuffer.SizeFromSequence (seq + SequenceNumber32 (sz));
-
+	  NS_LOG_FUNCTION (this << seq << maxSize << withAck << sz << remainingData);
 
   if (m_closeOnEmpty && (remainingData == 0))
     {
@@ -1974,6 +1982,7 @@ TcpSocketBase::SendPendingData (bool withAck)
   NS_LOG_FUNCTION (this << withAck << m_nextTxSequence);
   if (m_txBuffer.Size () == 0)
     {
+	  NS_LOG_LOGIC("Nothing to send");
       return false;                           // Nothing to send
 
     }
@@ -2026,15 +2035,36 @@ TcpSocketBase::SendPendingData (bool withAck)
 uint32_t
 TcpSocketBase::UnAckDataCount ()
 {
-  NS_LOG_FUNCTION (this);
+  //NS_LOG_FUNCTION (this);
   return m_nextTxSequence.Get () - m_txBuffer.HeadSequence ();
 }
 
 uint32_t
 TcpSocketBase::BytesInFlight ()
 {
-  NS_LOG_FUNCTION (this);
+  //NS_LOG_FUNCTION (this);
   return m_highTxMark.Get () - m_txBuffer.HeadSequence ();
+}
+
+uint32_t
+TcpSocketBase::UnSentData ()
+{
+  //NS_LOG_FUNCTION (this<<m_txBuffer.TailSequence ()<<m_nextTxSequence.Get()<<m_txBuffer.HeadSequence ()<<m_highTxMark.Get ());
+  //return m_txBuffer.TailSequence () - m_txBuffer.HeadSequence ();
+  return m_txBuffer.TailSequence () - m_nextTxSequence.Get();
+}
+
+Time
+TcpSocketBase::GetLastRtt ()
+{
+	return m_lastRtt;
+}
+
+uint32_t
+TcpSocketBase::BufferedData ()
+{
+  NS_LOG_FUNCTION (this<<m_txBuffer.TailSequence ()<<m_nextTxSequence.Get()<<m_txBuffer.HeadSequence ()<<m_highTxMark.Get ());
+  return m_txBuffer.TailSequence () - m_txBuffer.HeadSequence ();
 }
 
 uint32_t
@@ -2048,10 +2078,10 @@ TcpSocketBase::Window ()
 uint32_t
 TcpSocketBase::AvailableWindow ()
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  //NS_LOG_FUNCTION_NOARGS ();
   uint32_t unack = UnAckDataCount (); // Number of outstanding bytes
   uint32_t win = Window (); // Number of bytes allowed to be outstanding
-  NS_LOG_LOGIC ("UnAckCount=" << unack << ", Win=" << win);
+  NS_LOG_LOGIC (this<<" UnAckCount=" << unack << ", Win=" << win);
   return (win < unack) ? 0 : (win - unack);
 }
 
@@ -2061,12 +2091,13 @@ TcpSocketBase::AdvertisedWindowSize ()
 
   if(m_socket->GetTcpMpCapable())
   {
+	  NS_LOG_LOGIC("Advertized window " << m_socket->GetObject<MpTcpSocket>()->AdvertisedWindowSize());
 	  uint32_t val = std::min (m_socket->GetObject<MpTcpSocket>()->AdvertisedWindowSize(), (uint32_t)(m_maxWinSize<<m_rcvscale));
 	  NS_LOG_FUNCTION(this << (uint32_t)(m_maxWinSize<<m_rcvscale) << val);
 	  return std::min (m_socket->GetObject<MpTcpSocket>()->AdvertisedWindowSize(), (uint32_t)(m_maxWinSize<<m_rcvscale));
   } else {
 	  NS_LOG_FUNCTION(this << m_rxBuffer.MaxBufferSize () << m_rxBuffer.Size () << (uint32_t)(m_maxWinSize<<m_rcvscale));
-	return std::min (m_rxBuffer.MaxBufferSize () - m_rxBuffer.Size (), (uint32_t)(m_maxWinSize<<m_rcvscale));
+	  return std::min (m_rxBuffer.MaxBufferSize () - m_rxBuffer.Size (), (uint32_t)(m_maxWinSize<<m_rcvscale));
   }
 }
 
@@ -2077,7 +2108,8 @@ TcpSocketBase::ReceivedData (Ptr<Packet> p, const TcpHeader& tcpHeader)
   NS_LOG_FUNCTION (this << tcpHeader);
   NS_LOG_LOGIC ("seq " << tcpHeader.GetSequenceNumber () <<
                 " ack " << tcpHeader.GetAckNumber () <<
-                " pkt size " << p->GetSize () );
+                " pkt size " << p->GetSize () <<
+                " buffer size " << m_rxBuffer.Size());
 
 
   SequenceNumber32 expectedSeq = m_rxBuffer.NextRxSequence ();
@@ -2088,20 +2120,47 @@ TcpSocketBase::ReceivedData (Ptr<Packet> p, const TcpHeader& tcpHeader)
       return;
     }
 
+  NS_LOG_LOGIC("Expected seq " << expectedSeq << " nextrx " << m_rxBuffer.NextRxSequence () << " buffersize " << m_rxBuffer.Size());
   // Notify app to receive if necessary
   if (expectedSeq < m_rxBuffer.NextRxSequence ())
     { // NextRxSeq advanced, we have something to send to the app
       if (!m_shutdownRecv)
         {
+          m_rxTrace (p);
           if(!m_socket->GetTcpMpCapable())
 		  {
 	          m_socket->NotifyDataReceived ();
 		  }
           //if(m_socket->GetTcpMpCapable())
           else {
-        	 // m_socket->GetObject<MpTcpSocket>()->ReceivedData(this,m_dataSeq,m_rxBuffer.Extract (p->GetSize()));
+        	  std::map<SequenceNumber32,SequenceNumber64>::iterator iter;
+        	  std::map<SequenceNumber64,uint32_t>::iterator it;
+        	  Ptr<Packet> packet = m_rxBuffer.Extract (p->GetSize());
+        	  SequenceNumber32 seq = tcpHeader.GetSequenceNumber ();
+        	  NS_LOG_LOGIC("Packet size " << packet->GetSize() << " buffer size " << m_rxBuffer.Size());
+        	  while(packet&&packet->GetSize()>0){
+        		  //packet=0;
+            	  NS_LOG_LOGIC ("Seq " << seq << " extracted " << packet->GetSize() << " buffersize " << m_rxBuffer.Size());
+            	  iter=m_seqRxMap.find(seq);
+				  if(iter!=m_seqRxMap.end()){
+	            	  NS_LOG_LOGIC ("Seq " << seq << " seq64 " << iter->second << " extracted " << packet->GetSize() << " buffersize " << m_rxBuffer.Size());
+	            	  m_socket->GetObject<MpTcpSocket>()->ReceivedData(this,iter->second,packet);
+				  }
+            	  it=m_sizeRxMap.find(iter->second);
+            	  if(it!=m_sizeRxMap.end()){
+            		  NS_LOG_LOGIC("Size " << it->second);
+            		  packet = m_rxBuffer.Extract (it->second);
+            	  } else {
+            		  NS_LOG_LOGIC("No size");
+                	  packet = 0;
+            	  }
+            	  if(packet)seq+=packet->GetSize();
+        	  }
 
-          	  Ptr<Packet> packet;
+        	  //if(packet->GetSize()>p->GetSize ())NS_LOG_LOGIC("BIG PACKET");
+        	  //if(packet->GetSize()>0)m_socket->GetObject<MpTcpSocket>()->ReceivedData(this,m_dataSeq,packet);
+
+          	/*  Ptr<Packet> packet;
         	  Ptr<Packet> p;
         	  uint32_t first = 0;
         	  uint32_t fragment = 0;
@@ -2128,7 +2187,7 @@ TcpSocketBase::ReceivedData (Ptr<Packet> p, const TcpHeader& tcpHeader)
         		  m_lastSeq = seq;
         		  m_size = first;
 
-        	  }
+        	  }*/
           }
 
         }
@@ -2203,7 +2262,7 @@ TcpSocketBase::NewAck (SequenceNumber32 const& ack)
                     (Simulator::Now () + m_rto.Get ()).GetSeconds ());
       m_retxEvent = Simulator::Schedule (m_rto, &TcpSocketBase::ReTxTimeout, this);
     }
-  if (m_rWnd.Get () == 0 && m_persistEvent.IsExpired ())
+  if (m_rWnd.Get () < 0 && m_persistEvent.IsExpired ())
     { // Zero window: Enter persist state to send 1 byte to probe
       NS_LOG_LOGIC (this << "Enter zerowindow persist state");
       NS_LOG_LOGIC (this << "Cancelled ReTxTimeout event which was set to expire at " <<
@@ -2219,19 +2278,14 @@ TcpSocketBase::NewAck (SequenceNumber32 const& ack)
   NS_LOG_LOGIC ("TCP " << this << " NewAck " << ack <<
                 " numberAck " << (ack - m_txBuffer.HeadSequence ()) <<
                 " size " << m_txBuffer.Size()); // Number bytes ack'ed
+
+  if(m_socket->GetTcpMpCapable())m_socket->GetObject<MpTcpSocket>()->ReceivedAck(this,m_dataAck);
+
   m_txBuffer.DiscardUpTo (ack);
   m_buffsize = m_txBuffer.Size();
+  m_assize = m_txBuffer.SizeFromSequence (m_nextTxSequence);
 
-  if(m_socket->GetTcpMpCapable())
-  {
-	  m_socket->GetObject<MpTcpSocket>()->ReceivedAck(this,m_dataAck);
-	 /* for(std::map<SequenceNumber32,SequenceNumber64>::iterator it = seqTxMap.find(ack); it != seqTxMap.begin(); --it)
-	  	{
-		  NS_LOG_LOGIC("Seq acked " << it->first << " "<< it->second);
-		  seqTxMap.erase(it);
-	  	}*/
-
-  }
+  if(m_socket->GetTcpMpCapable())if (m_state == ESTABLISHED)m_socket->GetObject<MpTcpSocket>()->Send(Create<Packet>(),0);
   if (GetTxAvailable () > 0)
     {
 	  NS_LOG_LOGIC ("Send available");
@@ -2408,13 +2462,15 @@ TcpSocketBase::TimeWait ()
 void
 TcpSocketBase::SetSndBufSize (uint32_t size)
 {
-  m_txBuffer.SetMaxBufferSize (size);
+  //m_txBuffer.SetMaxBufferSize (size);
+	m_maxBuffsize = size;
 }
 
 uint32_t
 TcpSocketBase::GetSndBufSize (void) const
 {
-  return m_txBuffer.MaxBufferSize ();
+  //return m_txBuffer.MaxBufferSize ();
+	return m_maxBuffsize;
 }
 
 void
@@ -2440,7 +2496,7 @@ TcpSocketBase::GetRxAvailable (void) const
 uint32_t
 TcpSocketBase::GetTxAvailable (void) const
 {
-  NS_LOG_FUNCTION (this);
+  //NS_LOG_FUNCTION (this);
   return m_txBuffer.Available ();
 }
 
@@ -2593,6 +2649,14 @@ TcpSocketBase::SetSocket(Ptr<Socket> socket)
 {
 	NS_LOG_FUNCTION(this<<socket);
 	m_socket = socket->GetObject<TcpSocket>();
+	m_txBuffer.SetTcp(socket->GetObject<TcpSocket>());
+	m_txBuffer.SetMaxBufferSize(m_maxBuffsize);
+}
+
+Ptr<Socket>
+TcpSocketBase::GetSocket(void)
+{
+	return m_socket;
 }
 
 bool
@@ -2660,15 +2724,15 @@ TcpSocketBase::ReadOptions (const TcpHeader& tcpHeader)
 								NS_LOG_LOGIC("Seq " << tcpHeader.GetSequenceNumber() << " DataSeq32 " << " " << mpDss->GetDataSequence32().GetValue() << " length " << mpDss->GetDataLength());
 								m_dataSeq = SequenceNumber64(mpDss->GetDataSequence32().GetValue());
 								NS_LOG_LOGIC("SizeRxMap " << m_dataSeq << " " << mpDss->GetDataLength());
-								m_sizeRxMap.insert(SizePair(m_dataSeq,mpDss->GetDataLength()));
 							}
 
 							//m_dataAck = mpDss->GetDataAcknowledgment64();
 						   //mdss->GetSubflowSequence();
 							//mpDss->GetDataLength();
-							//seqRxMap.insert(SeqPair(mpDss->GetSubflowSequence(),mpDss->GetDataSequence64()));
+							m_seqRxMap.insert(SeqPair(mpDss->GetSubflowSequence(),m_dataSeq));
+							m_sizeRxMap.insert(SizePair(m_dataSeq,mpDss->GetDataLength()));
 
-							NS_LOG_FUNCTION(this << " DSS Recv Ack:" << m_dataAck << " Seq:" << m_dataSeq);
+							NS_LOG_LOGIC(this << " DSS Recv Ack:" << m_dataAck << " Seq:" << m_dataSeq << " " << mpDss->GetSubflowSequence() << " " <<m_dataSeq);
 
 					   }
 				   }
@@ -2775,19 +2839,26 @@ TcpSocketBase::AddOptions (TcpHeader& tcpHeader,uint32_t size)
 		if((m_socket->GetTcpMpCapable())&&(!mpOption->GetSubOption())&&m_succeed&&!(tcpHeader.GetFlags()& TcpHeader::SYN))
 		{
 
+			Ptr<TcpOptionMptcp> mpOption = TcpOption::CreateOption(30)->GetObject<TcpOptionMptcp>();
+			Ptr<TcpOptionMpDss> mpDss = TcpSubOption::CreateSubOption(2)->GetObject<TcpOptionMpDss>();
 			if(tcpHeader.GetAckNumber()<=SequenceNumber32(1)){
 				//NS_LOG_FUNCTION(this << " DSS Sent Seq:" << m_socket->GetObject<MpTcpSocket>()->GetRxSequence() << " " << SequenceNumber64(tcpHeader.GetSequenceNumber ().GetValue()));
-				CalculateDss(tcpHeader,tcpHeader.GetSequenceNumber()-m_frag, size);
+				//CalculateDss(tcpHeader,tcpHeader.GetSequenceNumber()-m_frag, size);
+				mpDss->SetDataAcknowledgment64(m_socket->GetObject<MpTcpSocket>()->GetRxSequence());
+				mpDss->SetDataSequence64(m_socket->GetObject<MpTcpSocket>()->GetNextSequence(this,tcpHeader.GetSequenceNumber()));
+				mpDss->SetSubflowSequence(tcpHeader.GetSequenceNumber());
+				mpDss->SetDataLength(size);
+
 			}
 			else
 			{
-				Ptr<TcpOptionMptcp> mpOption = TcpOption::CreateOption(30)->GetObject<TcpOptionMptcp>();
-				Ptr<TcpOptionMpDss> mpDss = TcpSubOption::CreateSubOption(2)->GetObject<TcpOptionMpDss>();
 				//NS_LOG_FUNCTION(this << " DSS Sent Ack:" << m_socket->GetObject<MpTcpSocket>()->GetRxSequence() << " " << SequenceNumber64(tcpHeader.GetSequenceNumber ().GetValue()));
 				mpDss->SetDataAcknowledgment64(m_socket->GetObject<MpTcpSocket>()->GetRxSequence());
-				mpOption->AddSubOption(mpDss);
-				tcpHeader.AppendOption(mpOption);
-			}/*
+
+			}
+			mpOption->AddSubOption(mpDss);
+			tcpHeader.AppendOption(mpOption);
+			/*
 			NS_LOG_FUNCTION(this << " DSS Sent");
 			std::map<SequenceNumber32,SequenceNumber64>::iterator iter;
 			iter=seqTxMap.find(tcpHeader.GetSequenceNumber ());
@@ -2831,7 +2902,7 @@ TcpSocketBase::AddOptions (TcpHeader& tcpHeader,uint32_t size)
 	}
 
 }
-uint32_t
+/*uint32_t
 TcpSocketBase::CalculateFragDss(SequenceNumber32 seq){
 	NS_LOG_FUNCTION(this << seq);
 	std::map<SequenceNumber32,SequenceNumber64>::iterator iter;
@@ -3015,7 +3086,7 @@ TcpSocketBase::CalculateDss(TcpHeader& tcpHeader, SequenceNumber32 seq, uint32_t
 		m_cumsize=0;
 		m_cumfrag=0;
 	}
-}
+}*/
 /** Associate a node with this TCP socket */
 void
 TcpSocketBase::SetNode (Ptr<Node> node)

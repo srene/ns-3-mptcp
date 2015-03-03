@@ -83,7 +83,6 @@ public:
    */
   void StartActiveAssociation (void);
 
-private:
   enum MacState
   {
     ASSOCIATED,
@@ -92,6 +91,11 @@ private:
     BEACON_MISSED,
     REFUSED
   };
+
+  void SetState (enum MacState value);
+
+private:
+
 
   void SetActiveProbing (bool enable);
   bool GetActiveProbing (void) const;
@@ -106,7 +110,6 @@ private:
   void MissedBeacons (void);
   void RestartBeaconWatchdog (Time delay);
   SupportedRates GetSupportedRates (void) const;
-  void SetState (enum MacState value);
 
   enum MacState m_state;
   Time m_probeRequestTimeout;

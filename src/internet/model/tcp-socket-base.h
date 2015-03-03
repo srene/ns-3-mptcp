@@ -32,6 +32,7 @@
 #include "ns3/ipv4-interface.h"
 #include "ns3/event-id.h"
 #include "tcp-tx-buffer.h"
+#include "tcp-tx-buffer-wrapper.h"
 #include "tcp-rx-buffer.h"
 #include "rtt-estimator.h"
 #include "tcp-option-mptcp.h"
@@ -93,7 +94,7 @@ public:
   Ptr<RttEstimator> GetRtt (void);
   void SetSucceed();
   void SetDataAck (SequenceNumber64 dataAck);
-  int Send (Ptr<Packet> p, SequenceNumber64 seq, uint32_t flags);
+  //int Send (Ptr<Packet> p, SequenceNumber64 seq, uint32_t flags);
   int Allocate(void);
   int Allocate(uint16_t port);
   int Allocate(Ipv4Address ipv4);
@@ -108,6 +109,7 @@ public:
   TcpStates_t GetState();
   void SetState(TcpStates_t state);
   void SetSocket(Ptr<Socket> socket);
+  Ptr<Socket> GetSocket(void);
   int GetSocketName(Address &address) const;
   int Close();
   Ptr<Packet> Recv (uint32_t maxSize, uint32_t flags);
@@ -169,7 +171,14 @@ public:
   bool     GetAllowBroadcast (void) const;
   virtual uint32_t GetCongestionWindow (void)  = 0;
   virtual double GetCurrentBw (void) = 0;
+  virtual double GetLastBw (void) = 0;
   virtual Time GetMinRtt(void)  = 0;
+  virtual uint32_t BytesInFlight (void);        // Return total bytes in flight
+  virtual uint32_t AvailableWindow (void);      // Return unfilled portion of window
+  virtual uint32_t UnSentData (void);
+  virtual uint32_t UnAckDataCount (void);       // Return count of number of unacked bytes
+  virtual uint32_t BufferedData(void);
+  virtual Time GetLastRtt ();
 
 protected:
 
@@ -214,10 +223,7 @@ protected:
   void ProcessLastAck (Ptr<Packet>, const TcpHeader&); // Received a packet upon LAST_ACK
 
   // Window management
-  virtual uint32_t UnAckDataCount (void);       // Return count of number of unacked bytes
-  virtual uint32_t BytesInFlight (void);        // Return total bytes in flight
   virtual uint32_t Window (void);               // Return the max possible number of unacked bytes
-  virtual uint32_t AvailableWindow (void);      // Return unfilled portion of window
   virtual uint32_t AdvertisedWindowSize (void); // The amount of Rx window announced to the peer
 
   // Manage data tx/rx
@@ -235,9 +241,9 @@ protected:
   virtual void DoRetransmit (void); // Retransmit the oldest packet
   virtual void ReadOptions (const TcpHeader&); // Read option from incoming packets
   virtual void AddOptions (TcpHeader&, uint32_t size); // Add option to outgoing packets
-  virtual void CalculateDss(TcpHeader& tcpHeader,SequenceNumber32 seq, uint32_t size);
+  /*virtual void CalculateDss(TcpHeader& tcpHeader,SequenceNumber32 seq, uint32_t size);
   virtual void CalculateFragDss(SequenceNumber32 seq, uint32_t size);
-  virtual uint32_t CalculateFragDss(SequenceNumber32 seq);
+  virtual uint32_t CalculateFragDss(SequenceNumber32 seq);*/
 
 protected:
   // Counters and events
@@ -271,11 +277,11 @@ protected:
   TracedValue<SequenceNumber32> m_nextTxSequence; //< Next seqnum to be sent (SND.NXT), ReTx pushes it back
   TracedValue<SequenceNumber32> m_highTxMark;     //< Highest seqno ever sent, regardless of ReTx
   TcpRxBuffer                   m_rxBuffer;       //< Rx buffer (reordering buffer)
-  TcpTxBuffer                   m_txBuffer;       //< Tx buffer
+  TcpTxBufferWrapper            m_txBuffer;       //< Tx buffer
 
   SequenceNumber64 m_lastSeq;
   uint32_t	m_size;
-  bool m_fragment;
+  /*bool m_fragment;
   //SequenceNumber64 m_prevSeq;
   uint32_t m_frag;
   uint32_t m_cumfrag;
@@ -284,7 +290,7 @@ protected:
   uint32_t m_frag2;
   uint32_t m_cumfrag2;
   uint32_t m_cumsize2;
-  uint32_t m_numfrags;
+  uint32_t m_numfrags;*/
   // State-related attributes
   TracedValue<TcpStates_t> m_state;         //< TCP state
   enum Socket::SocketErrno         m_errno;         //< Socket error code
@@ -306,7 +312,7 @@ protected:
   SeqMap m_seqTxMap;
   SizeMap m_sizeTxMap;
   SizeMap m_sizeRxMap;
-  //SeqMap seqRxMap;
+  SeqMap m_seqRxMap;
 
   bool m_succeed;
 
@@ -320,6 +326,11 @@ protected:
 
 
   TracedValue<uint32_t> m_buffsize;
+  TracedValue<uint32_t> m_assize;
+
+  TracedCallback<Ptr<const Packet> > m_rxTrace;
+  uint32_t m_maxBuffsize;
+
 
 };
 

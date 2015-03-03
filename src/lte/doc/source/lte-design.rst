@@ -294,7 +294,7 @@ end-to-end flow of data packets.
 .. figure:: figures/epc-data-flow-dl.*
    :align: center
 
-   Data flow in the dowlink between the internet and the UE
+   Data flow in the downlink between the internet and the UE
 
 To begin with, we consider the case of the downlink, which is depicted
 in Figure :ref:`fig-epc-data-flow-dl`.   
@@ -532,7 +532,7 @@ Transmission Bandwidth Configuration in use.
 For certain bandwidth
 values not all the RBs are usable, since the 
 group size is not a common divisor of the group. This is for instance the case
-when the bandwith is equal to 25 RBs, which results in a RBG size of 2 RBs, and
+when the bandwidth is equal to 25 RBs, which results in a RBG size of 2 RBs, and
 therefore 1 RB will result not addressable. 
 In uplink the format of the DCIs is different, since only adjacent RBs
 can be used because of the SC-FDMA modulation. As a consequence, all
@@ -652,6 +652,176 @@ where :math:`|\cdot|` indicates the cardinality of the set; finally,
    \right)}{\tau}
    
 
+Maximum Throughput (MT) Scheduler
+----------------------------------
+
+The Maximum Throughput (MT) scheduler [FCapo2012]_ aims to maximize the overall throughput of eNB.
+It allocates each RB to the user that can achieve the maximum achievable rate in the current TTI.
+Currently, MT scheduler in NS-3 has two versions: frequency domain (FDMT) and time domain (TDMT).
+In FDMT, every TTI, MAC scheduler allocates RBGs to the UE who has highest achievable rate calculated 
+by subband CQI. In TDMT, every TTI, MAC scheduler selects one UE which has highest achievable rate 
+calculated by wideband CQI. Then MAC scheduler allocates all RBGs to this UE in current TTI.
+The calculation of achievable rate in FDMT and TDMT is as same as the one in PF.
+Let :math:`i,j` denote generic users; let :math:`t` be the
+subframe index, and :math:`k` be the resource block index; let :math:`M_{i,k}(t)` be MCS
+usable by user :math:`i` on resource block :math:`k` according to what reported by the AMC
+model (see `Adaptive Modulation and Coding`_); finally, let :math:`S(M, B)` be the TB
+size in bits as defined in [TS36.213]_ for the case where a number :math:`B` of
+resource blocks is used. The achievable rate :math:`R_{i}(k,t)` in bit/s for user :math:`i`
+on resource block :math:`k` at subframe :math:`t` is defined as 
+
+.. math::
+
+   R_{i}(k,t) =  \frac{S\left( M_{i,k}(t), 1\right)}{\tau} 
+
+where :math:`\tau` is the TTI duration.
+At the start of each subframe :math:`t`, each RB is assigned to a certain user.
+In detail, the index :math:`\widehat{i}_{k}(t)` to which RB :math:`k` is assigned at time
+:math:`t` is determined as
+
+.. math::
+
+   \widehat{i}_{k}(t) = \underset{j=1,...,N}{\operatorname{argmax}}
+       \left( { R_{j}(k,t) } \right) 
+
+When there are several UEs having the same achievable rate, current implementation always selects
+the first UE created in script. Although MT can maximize cell throughput, it cannot provide
+fairness to UEs in poor channel condition.
+
+
+Throughput to Average (TTA) Scheduler
+--------------------------------------
+
+The Throughput to Average (TTA) scheduler [FCapo2012]_ can be considered as an intermediate between MT and PF. 
+The metric used in TTA is calculated as follows:
+
+.. math::
+
+   \widehat{i}_{k}(t) = \underset{j=1,...,N}{\operatorname{argmax}}
+    \left( \frac{ R_{j}(k,t) }{ R_{j}(t) } \right) 
+
+Here, :math:`R_{i}(k,t)` in bit/s represents the achievable rate for user :math:`i`
+on resource block :math:`k` at subframe :math:`t`. The 
+calculation method already is shown in MT and PF. Meanwhile, :math:`R_{i}(t)` in bit/s stands 
+for the achievable rate for :math:`i` at subframe :math:`t`. The difference between those two 
+achievable rates is how to get MCS. For :math:`R_{i}(k,t)`, MCS is calculated by subband CQI while 
+:math:`R_{i}(t)` is calculated by wideband CQI. TTA scheduler can only be implemented in frequency domain (FD) because
+the achievable rate of particular RBG is only related to FD scheduling.
+
+Blind Average Throughput Scheduler
+----------------------------------
+
+The Blind Average Throughput scheduler [FCapo2012]_ aims to provide equal throughput to all UEs under eNB. The metric
+used in TTA is calculated as follows:
+
+.. math::
+
+   \widehat{i}_{k}(t) = \underset{j=1,...,N}{\operatorname{argmax}}
+    \left( \frac{ 1 }{ T_\mathrm{j}(t) } \right) 
+
+where :math:`T_{j}(t)` is the past throughput performance perceived by the user :math:`j` and can be calculated by the 
+same method in PF scheduler. In the time domain blind average throughput (TD-BET), the scheduler selects the UE
+with largest priority metric and allocates all RBGs to this UE. On the other hand, in the frequency domain blind 
+average throughput (FD-BET), every TTI, the scheduler first selects one UE with lowest pastAverageThroughput (largest 
+priority metric). Then scheduler assigns one RBG to this UE, it calculates expected throughput of this UE and uses it
+to compare with past average throughput :math:`T_{j}(t)` of other UEs. The scheduler continues 
+to allocate RBG to this UE until its expected throughput is not the smallest one among past average throughput :math:`T_{j}(t)` 
+of all UE. Then the scheduler will use the same way to allocate RBG for a new UE which has the 
+lowest past average throughput :math:`T_{j}(t)` until all RBGs are allocated to UEs. The principle behind this is
+that, in every TTI, the scheduler tries the best to achieve the equal throughput among all UEs.
+
+Token Bank Fair Queue Scheduler
+-------------------------------
+
+Token Bank Fair Queue (TBFQ) is a QoS aware scheduler which derives from the leaky-bucket mechanism. In TBFQ, 
+a traffic flow of user :math:`i` is characterized by following parameters: 
+
+ * :math:`t_{i}`: packet arrival rate (byte/sec )
+ * :math:`r_{i}`: token generation rate (byte/sec)
+ * :math:`p_{i}`: token pool size (byte)
+ * :math:`E_{i}`: counter that records the number of token borrowed from or given to the token bank by flow :math:`i` ;
+   :math:`E_{i}` can be smaller than zero 
+
+Each K bytes data consumes k tokens. Also, TBFQ maintains a shared token bank (:math:`B`) so as to balance the traffic
+between different flows. If token generation rate :math:`r_{i}` is bigger than packet arrival rate :math:`t_{i}`, then tokens
+overflowing from token pool are added to the token bank, and :math:`E_{i}` is increased by the same amount. Otherwise,
+flow :math:`i` needs to withdraw tokens from token bank based on a priority metric :math:`frac{E_{i}}{r_{i}}`, and :math:`E_{i}` is decreased.
+Obviously, the user contributes more on token bank has higher priority to borrow tokens; on the other hand, the 
+user borrows more tokens from bank has lower priority to continue to withdraw tokens. Therefore, in case of several
+users having the same token generation rate, traffic rate and token pool size, user suffers from higher interference
+has more opportunity to borrow tokens from bank. In addition, TBFQ can police the traffic by setting the token 
+generation rate to limit the throughput.  Additionally, TBFQ also maintains following three parameters for each flow: 
+
+ * Debt limit :math:`d_{i}`: if :math:`E_{i}` belows this threshold, user i cannot further borrow tokens from bank. This is for 
+   preventing malicious UE to borrow too much tokens.
+ * Credit limit :math:`c_{i}`: the maximum number of tokens UE i can borrow from the bank in one time.
+ * Credit threshold :math:`C`: once :math:`E_{i}` reaches debt limit, UE i must store :math:`C` tokens to bank in order to further 
+   borrow token from bank.
+
+LTE in NS-3 has two versions of TBFQ scheduler: frequency domain TBFQ (FD-TBFQ) and time domain TBFQ (TD-TBFQ). 
+In FD-TBFQ, the scheduler always select UE with highest metric and allocates RBG with highest subband CQI until 
+there are no packets within UE's RLC buffer or all RBGs are allocated [FABokhari2009]_. In TD-TBFQ, after selecting
+UE with maximum metric, it allocates all RBGs to this UE by using wideband CQI [WKWong2004]_. 
+
+Priority Set Scheduler
+----------------------
+
+Priority set scheduler (PSS) is a QoS aware scheduler which combines time domain (TD) and frequency domain (FD) 
+packet scheduling operations into one scheduler [GMonghal2008]_. It controls the fairness among UEs by a specified 
+Target Bit Rate (TBR). 
+
+In TD scheduler part, PSS first selects UEs with non-empty RLC buffer and then divide them into two sets based 
+on the TBR: 
+
+* set 1: UE whose past average throughput is smaller than TBR; TD scheduler calculates their priority metric in
+  Blind Equal Throughput (BET) style:
+
+.. math::
+
+   \widehat{i}_{k}(t) = \underset{j=1,...,N}{\operatorname{argmax}}
+    \left( \frac{ 1 }{ T_\mathrm{j}(t) } \right) 
+
+* set 2: UE whose past average throughput is larger (or equal) than TBR; TD scheduler calculates their priority
+  metric in Proportional Fair (PF) style:
+
+.. math::
+
+   \widehat{i}_{k}(t) = \underset{j=1,...,N}{\operatorname{argmax}}
+    \left( \frac{ R_{j}(k,t) }{ T_\mathrm{j}(t) } \right) 
+
+UEs belonged to set 1 have higher priority than ones in set 2. Then PSS will select :math:`N_{mux}` UEs with
+highest metric in two sets and forward those UE to FD scheduler. In PSS, FD scheduler allocates RBG k to UE n 
+that maximums the chosen metric. Two PF schedulers are used in PF scheduler:
+
+* Proportional Fair scheduled (PFsch)
+
+.. math::
+
+   \widehat{Msch}_{k}(t) = \underset{j=1,...,N}{\operatorname{argmax}}
+    \left( \frac{ R_{j}(k,t) }{ Tsch_\mathrm{j}(t) } \right) 
+
+
+* Carrier over Interference to Average (CoIta)
+
+.. math::
+
+   \widehat{Mcoi}_{k}(t) = \underset{j=1,...,N}{\operatorname{argmax}}
+    \left( \frac{ CoI[j,k] }{ \sum_{k=0}^{N_{RBG}} CoI[j,k] } \right) 
+
+where :math:`Tsch_{j}(t)` is similar past throughput performance perceived by the user :math:`j`, with the 
+difference that it is updated only when the i-th user is actually served. :math:`CoI[j,k]` is an 
+estimation of the SINR on the RBG :math:`k` of UE :math:`j`. Both PFsch and CoIta is for decoupling 
+FD metric from TD scheduler. In addition, PSS FD scheduler also provide a weight metric W[n] for helping 
+controlling fairness in case of low number of UEs.
+
+.. math::
+
+   W[n] =  max (1, \frac{TBR}{ T_{j}(t) })
+
+where :math:`T_{j}(t)` is the past throughput performance perceived by the user :math:`j` . Therefore, on
+RBG k, the FD scheduler selects the UE :math:`j` that maximizes the product of the frequency domain 
+metric (:math:`Msch`, :math:`MCoI`) by weight :math:`W[n]`. This strategy will guarantee the throughput of lower
+quality UE tend towards the TBR. 
 
 Transport Blocks
 ----------------
@@ -1095,6 +1265,26 @@ the one described in [Piro2011]_, with the following modifications.  The model n
 inter cell intereference calculation and the simulation of uplink traffic, including both packet transmission and CQI generation. 
 
 
+Subframe Structure
+^^^^^^^^^^^^^^^^^^
+
+The subframe is divided into control and data part as described in Figure :ref:`fig-lte-subframe-structure`.
+
+.. _fig-lte-subframe-structure:
+
+.. figure:: figures/lte-subframe-structure.*
+   :width: 50px
+
+   Lte subframe division.
+
+
+Considering the granularity of the simulator based on RB, the control and the reference signaling have to be consequently modeled considering this constraint.  According to the standard [TS36.211]_, the downlink control frame starts at the beginning of each subframe and lasts up to three symbols across the whole system bandwidth, where the actual duration is provided by the Physical Control Format Indicator Channel (PCFICH). The information on the allocation are then mapped in the remaining resource up to the duration defined by the PCFICH, in the so called Physical Downlink Control Channel (PDCCH). A PDCCH transports a single message called Downlink Control Information (DCI) coming from the MAC layer, where the scheduler indicates the resource allocation for a specific user.
+The PCFICH and PDCCH are modeled with the transmission of the control frame of a fixed duration of 3/14 of milliseconds spanning in the whole available bandwidth, since the scheduler does not estimate the size of the control region. This implies that a single transmission block models the entire control frame with a fixed power (i.e., the one used for the PDSCH) across all the available RBs. According to this feature, this transmission represents also a valuable support for the Reference Signal (RS). This allows of having every TTI an evaluation of the interference scenario since all the eNB are transmitting (simultaneously) the control frame over the respective available bandwidths. We note that, the model does not include the power boosting since it does not reflect any improvement in the implemented model of the channel estimation.
+
+
+The Sounding Reference Signal (SRS) is modeled similar to the downlink control frame. The SRS is periodically placed in the last symbol of the subframe in the whole system bandwidth. The RRC module already includes an algorithm for dynamically assigning the periodicity as function of the actual number of UEs attached to a eNB according to the UE-specific procedure (see Section 8.2 of [TS36.213]_).
+
+
 MAC to Channel delay
 ^^^^^^^^^^^^^^^^^^^^
 
@@ -1148,10 +1338,10 @@ discussed in [Ofcom2600MHz]_.
 
 
 
-PHY Error Model
----------------
+Data PHY Error Model
+--------------------
 
-The simulator includes an error model of the data plane (i.e., PDSCH) according to the standard link-to-system mapping (LSM) techniques. The choice is aligned with the standard system simulation methodology of OFDMA  radio transmission technology. Thanks to LSM we are able to maintain a good level of accuracy and at the same time limiting the computational complexity increase. It is based on the mapping of single link layer performance obtained by means of link level simulators to system (in our case network) simulators. In particular link the layer simulator is used for generating the performance of a single link from a PHY layer perspective, usually in terms of code block error rate (BLER), under specific static conditions. LSM allows the usage of these parameters in more complex scenarios, typical of system/network simulators, where we have more links, interference and "colored" channel propagation phenomena (e.g., frequency selective fading).
+The simulator includes an error model of the data plane (i.e., PDSCH and PUSCH) according to the standard link-to-system mapping (LSM) techniques. The choice is aligned with the standard system simulation methodology of OFDMA  radio transmission technology. Thanks to LSM we are able to maintain a good level of accuracy and at the same time limiting the computational complexity increase. It is based on the mapping of single link layer performance obtained by means of link level simulators to system (in our case network) simulators. In particular link the layer simulator is used for generating the performance of a single link from a PHY layer perspective, usually in terms of code block error rate (BLER), under specific static conditions. LSM allows the usage of these parameters in more complex scenarios, typical of system/network simulators, where we have more links, interference and "colored" channel propagation phenomena (e.g., frequency selective fading).
 
 To do this the Vienna LTE Simulator [ViennaLteSim]_ has been used for what concerns the extraction of link layer performance and the Mutual Information Based Effective SINR (MIESM) as LSM mapping function using part of the work recently published by the Signet Group of University of Padua [PaduaPEM]_.
 
@@ -1288,8 +1478,20 @@ The model implemented uses the curves for the LSM of the recently LTE PHY Error 
 
 The model can be disabled for working with a zero-losses channel by setting the ``PemEnabled`` attribute of the ``LteSpectrumPhy`` class (by default is active). This can be done according to the standard ns3 attribute system procedure, that is::
 
-  Config::SetDefault ("ns3::LteSpectrumPhy::PemEnabled", BooleanValue (false));
+  Config::SetDefault ("ns3::LteSpectrumPhy::DataErrorModelEnabled", BooleanValue (false));  
 
+Control Channels PHY Error Model
+--------------------------------
+
+The simulator includes the error model for downlink control channels (PCFICH and PDCCH), while in uplink it is assumed and ideal error-free channel. The model is based on the MIESM approach presented before for considering the effects of the frequency selective channel since most of the control channels span the whole available bandwidth.
+
+
+PCFICH + PDCCH Error Model
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The model adopted for the error distribution of these channels is based on an evaluation study carried out in the RAN4 of 3GPP, where different vendors investigated the demodulation performance of the PCFICH jointly with PDCCH. This is due to the fact that the PCFICH is the channel in charge of communicating to the UEs the actual dimension of the PDCCH (which spans between 1 and 3 symbols); therefore the correct decodification of the DCIs  depends on the correct interpretation of both ones. In 3GPP this problem have been evaluated for improving the cell-edge performance _[FujitsuWhitePaper], where the interference among neighboring cells can be relatively high due to signal degradation. A similar problem has been notices in femto-cell scenario and, more in general, in HetNet scenarios the bottleneck has been detected mainly as the PCFICH channel _[Bharucha2011], where in case of many eNBs are deployed in the same service area, this channel may collide in frequency, making impossible the correct detection of the PDCCH channel, too. 
+
+In the simulator, the SINR perceived during the reception has been estimated according to the MIESM model presented above in order to evaluate the error distribution of PCFICH and PDCCH. In detail, the SINR samples of all the RBs are included in the evaluation of the MI associated to the control frame and, according to this values, the effective SINR (eSINR) is obtained by inverting the MI evaluation process. It has to be noted that, in case of MIMO transmission, both PCFICH and the PDCCH use always the transmit diversity mode as defined by the standard. According to the eSINR perceived the decodification error probability can be estimated as function of the results presented in _[R4-081920]. In case an error occur, the DCIs discarded and therefore the UE will be not able to receive the correspondent Tbs, therefore resulting lost.
 
 
 MIMO Model

@@ -23,6 +23,8 @@
 #include "ns3/log.h"
 #include "ns3/string.h"
 #include "ns3/double.h"
+#include "ns3/enum.h"
+#include "ns3/boolean.h"
 #include "ns3/test.h"
 #include "ns3/mobility-helper.h"
 #include "ns3/lte-helper.h"
@@ -31,6 +33,7 @@
 #include "ns3/lte-ue-net-device.h"
 #include "ns3/lte-enb-phy.h"
 #include "ns3/lte-enb-net-device.h"
+#include "ns3/ff-mac-scheduler.h"
 
 #include "lte-test-sinr-chunk-processor.h"
 
@@ -90,7 +93,8 @@ LteEnbAntennaTestCase::~LteEnbAntennaTestCase ()
 void
 LteEnbAntennaTestCase::DoRun (void)
 {
-  
+  Config::SetDefault ("ns3::LteSpectrumPhy::CtrlErrorModelEnabled", BooleanValue (false));
+  Config::SetDefault ("ns3::LteSpectrumPhy::DataErrorModelEnabled", BooleanValue (false));
   Ptr<LteHelper> lteHelper = CreateObject<LteHelper> ();
 
   // use 0dB Pathloss, since we are testing only the antenna gain
@@ -117,6 +121,7 @@ LteEnbAntennaTestCase::DoRun (void)
   NetDeviceContainer enbDevs;
   NetDeviceContainer ueDevs;
   lteHelper->SetSchedulerType ("ns3::RrFfMacScheduler");
+  lteHelper->SetSchedulerAttribute ("UlCqiFilter", EnumValue (FfMacScheduler::PUSCH_UL_CQI));
   lteHelper->SetEnbAntennaModelType ("ns3::CosineAntennaModel");
   lteHelper->SetEnbAntennaModelAttribute ("Orientation", DoubleValue (m_orientationDegrees));
   lteHelper->SetEnbAntennaModelAttribute ("Beamwidth",   DoubleValue (m_beamwidthDegrees));
@@ -137,39 +142,39 @@ LteEnbAntennaTestCase::DoRun (void)
   // It will be used to test that the SNR is as intended
   Ptr<LtePhy> uePhy = ueDevs.Get (0)->GetObject<LteUeNetDevice> ()->GetPhy ()->GetObject<LtePhy> ();
   Ptr<LteTestSinrChunkProcessor> testDlSinr = Create<LteTestSinrChunkProcessor> (uePhy);
-  uePhy->GetDownlinkSpectrumPhy ()->AddSinrChunkProcessor (testDlSinr);
+  uePhy->GetDownlinkSpectrumPhy ()->AddDataSinrChunkProcessor (testDlSinr);
 
   Ptr<LtePhy> enbphy = enbDevs.Get (0)->GetObject<LteEnbNetDevice> ()->GetPhy ()->GetObject<LtePhy> ();
   Ptr<LteTestSinrChunkProcessor> testUlSinr = Create<LteTestSinrChunkProcessor> (enbphy);
-  enbphy->GetUplinkSpectrumPhy ()->AddSinrChunkProcessor (testUlSinr);
+  enbphy->GetUplinkSpectrumPhy ()->AddDataSinrChunkProcessor (testUlSinr);
 
 
   Simulator::Stop (Seconds (0.020));
   Simulator::Run ();
 
 
-  const double enbTxPowerDbm = 30; // default eNB TX power over whole bandwdith
-  const double ueTxPowerDbm  = 10; // default UE TX power over whole bandwdith
+  const double enbTxPowerDbm = 30; // default eNB TX power over whole bandwidth
+  const double ueTxPowerDbm  = 10; // default UE TX power over whole bandwidth
   const double ktDbm = -174;    // reference LTE noise PSD
-  const double noisePowerDbm = ktDbm + 10 * log10 (25 * 180000); // corresponds to kT*bandwidth in linear units
+  const double noisePowerDbm = ktDbm + 10 * std::log10 (25 * 180000); // corresponds to kT*bandwidth in linear units
   const double ueNoiseFigureDb = 9.0; // default UE noise figure
   const double enbNoiseFigureDb = 5.0; // default eNB noise figure
 
   double calculatedSinrDbDl = -INFINITY;
   if (testDlSinr->GetSinr () != 0)
     {
-      calculatedSinrDbDl = 10.0 * log10 (testDlSinr->GetSinr ()->operator[] (0));
+      calculatedSinrDbDl = 10.0 * std::log10 (testDlSinr->GetSinr ()->operator[] (0));
     }
   double calculatedSinrDbUl = -INFINITY;
   if (testUlSinr->GetSinr () != 0)
     {
-      calculatedSinrDbUl = 10.0 * log10 (testUlSinr->GetSinr ()->operator[] (0));
+      calculatedSinrDbUl = 10.0 * std::log10 (testUlSinr->GetSinr ()->operator[] (0));
     }
   
   // remember that propagation loss is 0dB
   double calculatedAntennaGainDbDl = - (enbTxPowerDbm - calculatedSinrDbDl - noisePowerDbm - ueNoiseFigureDb);
   double calculatedAntennaGainDbUl = - (ueTxPowerDbm - calculatedSinrDbUl - noisePowerDbm - enbNoiseFigureDb);
-  double tolerance = (m_antennaGainDb != 0) ? abs (m_antennaGainDb)*0.001 : 0.001;
+  double tolerance = (m_antennaGainDb != 0) ? std::abs (m_antennaGainDb)*0.001 : 0.001;
   NS_TEST_ASSERT_MSG_EQ_TOL (calculatedAntennaGainDbDl, m_antennaGainDb, tolerance, "Wrong DL antenna gain!");
   NS_TEST_ASSERT_MSG_EQ_TOL (calculatedAntennaGainDbUl, m_antennaGainDb, tolerance, "Wrong UL antenna gain!");
   

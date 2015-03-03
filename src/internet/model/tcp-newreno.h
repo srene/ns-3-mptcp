@@ -44,6 +44,7 @@ public:
   TcpNewReno (const TcpNewReno& sock);
   virtual ~TcpNewReno (void);
   virtual double GetCurrentBw (void);
+  virtual double GetLastBw (void);
   virtual Time GetMinRtt(void);
 
   // From TcpSocketBase

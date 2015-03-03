@@ -3,30 +3,11 @@
 #include "ns3/tag.h"
 #include "ns3/simulator.h"
 #include "ns3/string.h"
+#include "ns3/log.h"
+
+NS_LOG_COMPONENT_DEFINE ("DelayJitterEstimation");
 
 namespace ns3 {
-
-class DelayJitterEstimationTimestampTag : public Tag
-{
-public:
-  DelayJitterEstimationTimestampTag ();
-  static TypeId GetTypeId (void);
-  virtual TypeId GetInstanceTypeId (void) const;
-
-  virtual uint32_t GetSerializedSize (void) const;
-  virtual void Serialize (TagBuffer i) const;
-  virtual void Deserialize (TagBuffer i);
-  virtual void Print (std::ostream &os) const;
-
-  Time GetTxTime (void) const;
-private:
-  uint64_t m_creationTime;
-};
-
-DelayJitterEstimationTimestampTag::DelayJitterEstimationTimestampTag ()
-  : m_creationTime (Simulator::Now ().GetTimeStep ())
-{
-}
 
 TypeId
 DelayJitterEstimationTimestampTag::GetTypeId (void)
@@ -42,6 +23,14 @@ DelayJitterEstimationTimestampTag::GetTypeId (void)
   ;
   return tid;
 }
+
+
+DelayJitterEstimationTimestampTag::DelayJitterEstimationTimestampTag ()
+  : m_creationTime (Simulator::Now ().GetTimeStep ())
+{
+}
+
+
 TypeId
 DelayJitterEstimationTimestampTag::GetInstanceTypeId (void) const
 {
@@ -85,21 +74,25 @@ void
 DelayJitterEstimation::PrepareTx (Ptr<const Packet> packet)
 {
   DelayJitterEstimationTimestampTag tag;
+  NS_LOG_LOGIC("tag " << packet);
   packet->AddByteTag (tag);
 }
 void
 DelayJitterEstimation::RecordRx (Ptr<const Packet> packet)
 {
+  NS_LOG_LOGIC("jitter "<<packet);
   DelayJitterEstimationTimestampTag tag;
   bool found;
   found = packet->FindFirstMatchingByteTag (tag);
   if (!found)
     {
+	  NS_LOG_LOGIC("not found");
+
       return;
     }
   tag.GetTxTime ();
 
-  Time delta = (Simulator::Now () - m_previousRx) - (tag.GetTxTime () - m_previousRxTx);
+  delta = (Simulator::Now () - m_previousRx) - (tag.GetTxTime () - m_previousRxTx);
   m_jitter += (Abs (delta) - m_jitter) / 16;
   m_previousRx = Simulator::Now ();
   m_previousRxTx = tag.GetTxTime ();
@@ -117,4 +110,9 @@ DelayJitterEstimation::GetLastJitter (void) const
   return m_jitter.GetHigh ();
 }
 
+Time
+DelayJitterEstimation::GetLastDelta (void) const
+{
+  return delta;
+}
 } // namespace ns3

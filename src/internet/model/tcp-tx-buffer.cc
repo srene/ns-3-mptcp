@@ -253,7 +253,7 @@ TcpTxBuffer::DiscardUpTo (const SequenceNumber32& seq)
         }
     }
   // Catching the case of ACKing a FIN
-  if (m_size == 0)
+  if (m_size == (uint32_t)0)
     {
       m_firstByteSeq = seq;
     }

@@ -141,7 +141,7 @@ TcpRxBuffer64::Add (Ptr<Packet> p, SequenceNumber64 seq)
   uint32_t pktSize = p->GetSize ();
   SequenceNumber64 headSeq = seq;
   SequenceNumber64 tailSeq = headSeq + SequenceNumber64 (pktSize);
-  NS_LOG_LOGIC ("Add pkt " << p << " len=" << pktSize << " seq=" << headSeq
+  NS_LOG_LOGIC ("Add pkt " << p << " len=" << pktSize << " seq=" << headSeq << " tailseq=" << tailSeq
                            << ", when NextRxSeq=" << m_nextRxSeq << ", buffsize=" << m_size << ",maxbuffer=" << m_maxBuffer);
 
   // Trim packet to fit Rx window specification
@@ -178,6 +178,8 @@ TcpRxBuffer64::Add (Ptr<Packet> p, SequenceNumber64 seq)
         }
       ++i;
     }
+  NS_LOG_LOGIC ("Headseq " << headSeq << " tailseq " << tailSeq);
+
   // We now know how much we are going to store, trim the packet
   if (headSeq >= tailSeq)
     {

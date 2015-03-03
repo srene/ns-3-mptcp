@@ -22,6 +22,7 @@
 #include <queue>
 #include "ns3/packet.h"
 #include "ns3/queue.h"
+#include "ns3/traced-value.h"
 
 namespace ns3 {
 
@@ -67,7 +68,7 @@ private:
   std::queue<Ptr<Packet> > m_packets;
   uint32_t m_maxPackets;
   uint32_t m_maxBytes;
-  uint32_t m_bytesInQueue;
+  TracedValue<uint32_t> m_bytesInQueue;
   QueueMode m_mode;
 };
 

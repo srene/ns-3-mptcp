@@ -6,6 +6,24 @@
 
 namespace ns3 {
 
+
+class DelayJitterEstimationTimestampTag : public Tag
+{
+public:
+  DelayJitterEstimationTimestampTag ();
+  static TypeId GetTypeId (void);
+  virtual TypeId GetInstanceTypeId (void) const;
+
+  virtual uint32_t GetSerializedSize (void) const;
+  virtual void Serialize (TagBuffer i) const;
+  virtual void Deserialize (TagBuffer i);
+  virtual void Print (std::ostream &os) const;
+
+  Time GetTxTime (void) const;
+private:
+  uint64_t m_creationTime;
+};
+
 /**
  * \ingroup tools
  *
@@ -49,11 +67,14 @@ public:
    */
   uint64_t GetLastJitter (void) const;
 
+  Time GetLastDelta (void) const;
 private:
   Time m_previousRx;
   Time m_previousRxTx;
   int64x64_t m_jitter;
   Time m_delay;
+  Time delta;
+
 };
 
 } // namespace ns3

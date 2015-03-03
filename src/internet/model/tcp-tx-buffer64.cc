@@ -33,12 +33,15 @@ namespace ns3 {
 TypeId
 TcpTxBuffer64::GetTypeId (void)
 {
-  static TypeId tid = TypeId ("ns3::TcpTxBuffer6464")
+  static TypeId tid = TypeId ("ns3::TcpTxBuffer64")
     .SetParent<Object> ()
     .AddConstructor<TcpTxBuffer64> ()
     .AddTraceSource ("UnackSequence",
                      "First unacknowledged sequence number (SND.UNA)",
                      MakeTraceSourceAccessor (&TcpTxBuffer64::m_firstByteSeq))
+    .AddTraceSource ("LastSequence",
+	    			 "First unacknowledged sequence number (SND.UNA)",
+				     MakeTraceSourceAccessor (&TcpTxBuffer64::m_lastByteSeq))
   ;
   return tid;
 }
@@ -51,12 +54,14 @@ TcpTxBuffer64::GetTypeId (void)
  * initialized below is insignificant.
  */
 TcpTxBuffer64::TcpTxBuffer64 (uint32_t n)
-  : m_firstByteSeq (n), m_size (0), m_maxBuffer (32768), m_data (0)
+  : m_firstByteSeq (n), m_size (0), m_maxBuffer (32768)//, m_data (0)
 {
+	m_data.clear();
 }
 
 TcpTxBuffer64::~TcpTxBuffer64 (void)
 {
+	m_data.clear();
 }
 
 SequenceNumber64
@@ -68,8 +73,10 @@ TcpTxBuffer64::HeadSequence (void) const
 SequenceNumber64
 TcpTxBuffer64::TailSequence (void) const
 {
-  //NS_LOG_FUNCTION(m_firstByteSeq << m_size );
-  return m_firstByteSeq + SequenceNumber64 (m_size);
+
+    //NS_LOG_FUNCTION(m_lastByteSeq);
+	return m_lastByteSeq;
+    //return m_firstByteSeq + SequenceNumber64 (m_size);
 }
 
 uint32_t
@@ -87,6 +94,7 @@ TcpTxBuffer64::MaxBufferSize (void) const
 void
 TcpTxBuffer64::SetMaxBufferSize (uint32_t n)
 {
+  NS_LOG_FUNCTION(this<<n);
   m_maxBuffer = n;
 }
 
@@ -99,6 +107,7 @@ TcpTxBuffer64::Available (void) const
 bool
 TcpTxBuffer64::Add (Ptr<Packet> p)
 {
+
   NS_LOG_FUNCTION (this << p);
   NS_LOG_LOGIC ("Packet of size " << p->GetSize () << " appending to window starting at "
                                   << m_firstByteSeq << ", availSize="<< Available ());
@@ -107,102 +116,57 @@ TcpTxBuffer64::Add (Ptr<Packet> p)
     {
       if (p->GetSize () > 0)
         {
-          m_data.push_back (p);
+    	  NS_LOG_LOGIC("Insert " << m_lastByteSeq << " " << p << " " << p->GetSize());
+          m_data.insert (DataPair(m_lastByteSeq,p));
           m_size += p->GetSize ();
-          NS_LOG_LOGIC ("Updated size=" << m_size << ", lastSeq=" << m_firstByteSeq + SequenceNumber64 (m_size));
+          m_lastByteSeq  += p->GetSize ();
+          NS_LOG_LOGIC ("Updated size=" << m_size << ", lastSeq=" << m_firstByteSeq + SequenceNumber64 (m_size) << " or " << TailSequence());
         }
-      uint32_t size = 1;
-      for (BufIterator i = m_data.begin (); i != m_data.end (); ++i)
-        {
-    	  NS_LOG_LOGIC("packet size " << size << " " << (*i)->GetSize ());
-    	  size+=(*i)->GetSize ();
 
-        }
+      for(BufIterator i = m_data.begin();i!=m_data.end();++i)
+      {
+    	  NS_LOG_LOGIC ("Seq=" << (*i).first << ", size=" << (*i).second->GetSize() << " " << (*i).second);
+      }
+
       return true;
     }
   NS_LOG_LOGIC ("Rejected. Not enough room to buffer packet.");
   return false;
 }
 
-int
-TcpTxBuffer64::SizeFromSequence (const SequenceNumber64& seq) const
-{
-  NS_LOG_FUNCTION (this << seq);
-  // Sequence of last byte in buffer
-  SequenceNumber64 lastSeq = m_firstByteSeq + SequenceNumber64 (m_size);
-  // Non-negative size
-  NS_LOG_LOGIC ("HeadSeq=" << m_firstByteSeq << ", lastSeq=" << lastSeq << ", size=" << m_size <<
-                ", returns " << lastSeq - seq);
-  return lastSeq - seq;
-}
 
 Ptr<Packet>
 TcpTxBuffer64::CopyFromSequence (uint32_t numBytes, const SequenceNumber64& seq)
 {
   NS_LOG_FUNCTION (this << numBytes << seq);
-  int s = std::min ((int)numBytes, SizeFromSequence (seq)); // Real size to extract. Insure not beyond end of data
-  NS_LOG_FUNCTION (this << s);
 
-  if (s <= 0)
-    {
-      return Create<Packet> (); // Empty packet returned
-    }
-  if (m_data.size () == 0)
-    { // No actual data, just return dummy-data packet of correct size
-      return Create<Packet> (s);
-    }
-  // Extract data from the buffer and return
-  uint64_t offset = seq - m_firstByteSeq.Get ();
-  uint32_t count = 0;      // Offset of the first byte of a packet in the buffer
-  uint32_t pktSize = 0;
-  bool beginFound = false;
-  int pktCount = 0;
-  Ptr<Packet> outPacket;
-  NS_LOG_LOGIC ("There are " << m_data.size () << " number of packets in buffer");
-  for (BufIterator i = m_data.begin (); i != m_data.end (); ++i)
-    {
-      pktCount++;
-      pktSize = (*i)->GetSize ();
-      if (!beginFound)
-        { // Look for first fragment
-          if (count + pktSize > offset)
-            {
-              NS_LOG_LOGIC ("First byte found in packet #" << pktCount << " at buffer offset " << count
-                                                           << ", packet len=" << pktSize);
-              beginFound = true;
-              uint32_t packetOffset = offset - count;
-              uint32_t fragmentLength = count + pktSize - offset;
-              if (fragmentLength >= s)
-                { // Data to be copied falls entirely in this packet
-                  return (*i)->CreateFragment (packetOffset, s);
-                }
-              else
-                { // This packet only fulfills part of the request
-                  outPacket = (*i)->CreateFragment (packetOffset, fragmentLength);
-                }
-              NS_LOG_LOGIC ("Output packet is now of size " << outPacket->GetSize ());
-            }
-        }
-      else if (count + pktSize >= offset + s)
-        { // Last packet fragment found
-          NS_LOG_LOGIC ("Last byte found in packet #" << pktCount << " at buffer offset " << count
-                                                      << ", packet len=" << pktSize);
-          uint32_t fragmentLength = offset + s - count;
-          Ptr<Packet> endFragment = (*i)->CreateFragment (0, fragmentLength);
-          outPacket->AddAtEnd (endFragment);
-          NS_LOG_LOGIC ("Output packet is now of size " << outPacket->GetSize ());
-          break;
-        }
-      else
-        {
-          NS_LOG_LOGIC ("Appending to output the packet #" << pktCount << " of offset " << count << " len=" << pktSize);
-          outPacket->AddAtEnd (*i);
-          NS_LOG_LOGIC ("Output packet is now of size " << outPacket->GetSize ());
-        }
-      count += pktSize;
-    }
-  NS_ASSERT (outPacket->GetSize () == s);
-  return outPacket;
+  BufIterator i = m_data.find(seq);
+
+  /*for(BufIterator i = m_data.begin();i!=m_data.end();++i)
+  {
+	  NS_LOG_LOGIC ("Seq=" << (*i).first << ", size=" << (*i).second->GetSize() << " " << (*i).second);
+  }*/
+
+  Ptr<Packet> p;
+
+  if(i!=m_data.end()){
+	  p= i->second->Copy();
+  } else {
+	  i++;
+	  while(i!=m_data.end()){
+
+		  p= i->second->Copy();
+		  NS_LOG_FUNCTION(p<<p->GetSize());
+		  if(p->GetSize()>0)
+			  break;
+		  i++;
+	  }
+  }
+
+
+  return p;
+
+
 }
 
 void
@@ -210,6 +174,7 @@ TcpTxBuffer64::SetHeadSequence (const SequenceNumber64& seq)
 {
   NS_LOG_FUNCTION (this << seq);
   m_firstByteSeq = seq;
+  m_lastByteSeq = seq;
 }
 
 void
@@ -223,92 +188,50 @@ TcpTxBuffer64::DiscardUpTo (const SequenceNumber64& seq)
 
   // Scan the buffer and discard packets
   uint64_t offset = seq - m_firstByteSeq.Get ();  // Number of bytes to remove
-  uint32_t pktSize;
   NS_LOG_LOGIC ("Offset=" << offset);
-  BufIterator i = m_data.begin ();
 
-  while (i != m_data.end ())
-    {
-	  NS_LOG_LOGIC("packet size " << (*i)->GetSize ());
-      if (offset > (*i)->GetSize ())
-        { // This packet is behind the seqnum. Remove this packet from the buffer
-          pktSize = (*i)->GetSize ();
-          m_size -= pktSize;
-          offset -= pktSize;
-          m_firstByteSeq += pktSize;
-          i = m_data.erase (i);
-          NS_LOG_LOGIC ("Removed one packet of size " << pktSize << ", offset=" << offset);
-        }
-      else if (offset > 0)
-        { // Part of the packet is behind the seqnum. Fragment
-          pktSize = (*i)->GetSize () - offset;
-          *i = (*i)->CreateFragment (offset, pktSize);
-          m_size -= offset;
-          m_firstByteSeq += offset;
-          NS_LOG_LOGIC ("Fragmented one packet by size " << offset << ", new size=" << pktSize);
-          break;
-        }
-    }
+  for(BufIterator i = m_data.begin ();i!=m_data.end();++i)
+  {
+	  //NS_LOG_FUNCTION (m_firstByteSeq << seq << i->first);
+	  if(i->first<seq){
+		  m_size-=(*i).second->GetSize();
+		  m_firstByteSeq+=(*i).second->GetSize();
+		  //NS_LOG_FUNCTION (m_firstByteSeq << m_size << (*i).second->GetSize());
+		  m_data.erase(i);
+	  }
+	  else break;
+  }
+  m_firstByteSeq = seq;
+  NS_LOG_LOGIC ("firstByteSeq=" << m_firstByteSeq);
   // Catching the case of ACKing a FIN
   if (m_size == 0)
     {
-      m_firstByteSeq = seq;
+	  m_firstByteSeq = seq;
     }
   NS_LOG_LOGIC ("size=" << m_size << " headSeq=" << m_firstByteSeq << " maxBuffer=" << m_maxBuffer
                         <<" numPkts="<< m_data.size ());
-  NS_ASSERT (m_firstByteSeq == seq);
+  //NS_ASSERT (m_firstByteSeq == seq);
 }
 
 void
-TcpTxBuffer64::Remove (const SequenceNumber64& seq,uint32_t size)
+TcpTxBuffer64::Remove (const SequenceNumber64& seq)
 {
-  NS_LOG_FUNCTION (this << seq << size);
+  NS_LOG_FUNCTION (this << seq);
   NS_LOG_LOGIC ("current data size=" << m_size << ", headSeq=" << m_firstByteSeq << ", maxBuffer=" << m_maxBuffer
-                                     << ", numPkts=" << m_data.size () << m_firstByteSeq);
+                                     << ", numPkts=" << m_data.size ());
   // Cases do not need to scan the buffer
   if (m_firstByteSeq > seq) return;
-  SequenceNumber64 sequence = m_firstByteSeq;
-  // Scan the buffer and discard packets
-  uint64_t offset = seq - m_firstByteSeq.Get ();  // Number of bytes to remove
-  uint32_t pktSize;
-  NS_LOG_LOGIC ("Offset=" << offset);
-  BufIterator i = m_data.begin ();
-  while (i != m_data.end ())
-    {
-	  NS_LOG_LOGIC("packet size " << (*i)->GetSize () << " Seq " << sequence);
-	  uint32_t size = (*i)->GetSize();
-	  sequence = sequence + SequenceNumber64(size);
-	  if((*i)->GetSize ()==0){
-		  i++;
-	  } else {
-		  NS_LOG_LOGIC("offset " << offset << " packet size " << (*i)->GetSize ());
-      if (offset >= (*i)->GetSize ())
-        { // This packet is behind the seqnum. Remove this packet from the buffer
-          pktSize = (*i)->GetSize ();
-          //m_size -= pktSize;
-          offset -= pktSize;
-          //m_firstByteSeq += pktSize;
-          //i = m_data.erase (i);
-          i++;
-          NS_LOG_LOGIC ("Removed one part of packet of size " << pktSize << ", offset=" << offset);
-        }
-     else { // Part of the packet is behind the seqnum. Fragment
-         NS_LOG_LOGIC ("Removed one packet of size " << pktSize << ", offset=" << offset);
-         pktSize = (*i)->GetSize ();
-         m_size -= pktSize;
-         i = m_data.erase (i);
-    	 break;
-          /*pktSize = (*i)->GetSize () - offset;
-          *i = (*i)->CreateFragment (offset, pktSize);
-          m_size -= offset;
-          //m_firstByteSeq += offset;
-          NS_LOG_LOGIC ("Fragmented one packet by size " << offset << ", new size=" << pktSize);
-          break;*/
-        }
-	  }
-    }
+
+  BufIterator i = m_data.find(seq);
+  if(i!=m_data.end())
+  {
+      if(m_firstByteSeq==seq)m_firstByteSeq+=(*i).second->GetSize();
+      m_size-=(*i).second->GetSize();
+	  m_data.erase(i);
+
+  }
   // Catching the case of ACKing a FIN
-  if (m_size == 0)
+  if (m_size == (uint32_t)0)
     {
       m_firstByteSeq = seq;
     }

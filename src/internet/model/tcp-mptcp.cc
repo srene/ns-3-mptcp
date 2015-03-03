@@ -86,12 +86,16 @@ TcpMpTcp::~TcpMpTcp (void)
 
 double TcpMpTcp::GetCurrentBw (void)
 {
-	return 0;
+	return m_lastBW;
+}
+double TcpMpTcp::GetLastBw (void)
+{
+	return m_currentBW;
 }
 Time TcpMpTcp::GetMinRtt(void)
 {
-	Time time;
-	return time;
+	NS_LOG_FUNCTION(this << m_minRtt);
+	return m_minRtt;
 }
 /** We initialize m_cWnd from this function, after attributes initialized */
 /*
@@ -132,6 +136,127 @@ TcpMpTcp::Fork (void)
 {
   NS_LOG_FUNCTION(this << GetInstanceTypeId ());
   return CopyObject<TcpMpTcp> (this);
+}
+
+void
+TcpMpTcp::ReceivedAck (Ptr<Packet> packet, const TcpHeader& tcpHeader)
+{
+  NS_LOG_FUNCTION (this);
+  int acked = 0;
+  if ((0 != (tcpHeader.GetFlags () & TcpHeader::ACK)) && tcpHeader.GetAckNumber() >= m_prevAckNo)
+    {// It is a duplicate ACK or a new ACK. Old ACK is ignored.
+	  if (m_IsCount)
+		{
+		  acked = CountAck (tcpHeader);
+		  UpdateAckedSegments (acked);
+		}
+    }
+
+  TcpSocketBase::ReceivedAck (packet, tcpHeader);
+}
+
+int
+TcpMpTcp::CountAck (const TcpHeader& tcpHeader)
+{
+  NS_LOG_FUNCTION (this);
+
+  // Calculate the number of acknowledged segments based on the received ACK number
+  int cumul_ack = (tcpHeader.GetAckNumber() - m_prevAckNo) / m_segmentSize;
+
+  if (cumul_ack == 0)
+    {// A DUPACK counts for 1 segment delivered successfully
+      m_accountedFor++;
+      cumul_ack = 1;
+    }
+  if (cumul_ack > 1)
+    {// A delayed ACK or a cumulative ACK after a retransmission
+     // Check how much new data it ACKs
+      if (m_accountedFor >= cumul_ack)
+        {
+          m_accountedFor -= cumul_ack;
+          cumul_ack = 1;
+        }
+      else if (m_accountedFor < cumul_ack)
+        {
+          cumul_ack -= m_accountedFor;
+          m_accountedFor = 0;
+        }
+    }
+
+  // Update the previous ACK number
+  m_prevAckNo = tcpHeader.GetAckNumber();
+
+  return cumul_ack;
+}
+
+void
+TcpMpTcp::UpdateAckedSegments (int acked)
+{
+  m_ackedSegments += acked;
+}
+
+void
+TcpMpTcp::EstimateRtt (const TcpHeader& tcpHeader)
+{
+  //NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION(this<<m_minRtt<<m_lastRtt);
+  // Calculate m_lastRtt
+  TcpSocketBase::EstimateRtt (tcpHeader);
+
+  // Update minRtt
+  if (m_minRtt == 0)
+    {
+      m_minRtt = m_lastRtt;
+    }
+  else
+    {
+      if (m_lastRtt < m_minRtt)
+        {
+          m_minRtt = m_lastRtt;
+        }
+    }
+
+  // For Westwood+, start running a clock on the currently estimated RTT if possible
+  // to trigger a new BW sampling event
+	 if(m_lastRtt != 0 && m_state == ESTABLISHED && !m_IsCount)
+	   {
+		 m_IsCount = true;
+		 m_bwEstimateEvent.Cancel();
+		 m_bwEstimateEvent = Simulator::Schedule (m_lastRtt, &TcpMpTcp::EstimateBW,this,m_ackedSegments,tcpHeader,m_lastRtt);
+	   }
+
+}
+
+void
+TcpMpTcp::EstimateBW (int acked, const TcpHeader& tcpHeader, Time rtt)
+{
+  NS_LOG_FUNCTION (this);
+
+      // Calculate the BW
+      m_currentBW = m_ackedSegments * m_segmentSize / rtt.GetSeconds();
+      // Reset m_ackedSegments and m_IsCount for the next sampling
+      m_ackedSegments = 0;
+      m_IsCount = false;
+
+  NS_LOG_LOGIC(m_currentBW);
+  // Filter the BW sample
+  Filtering();
+  NS_LOG_LOGIC(m_lastBW);
+
+}
+
+void
+TcpMpTcp::Filtering ()
+{
+  NS_LOG_FUNCTION (this);
+
+  double alpha = 0.9;
+
+
+      double sample_bwe = m_currentBW;
+      m_currentBW = (alpha * m_lastBW) + ((1 - alpha) * ((sample_bwe + m_lastSampleBW) / 2));
+      m_lastSampleBW = sample_bwe;
+      m_lastBW = m_currentBW;
 }
 
 /** New ACK (up to seqnum seq) received. Increase cwnd and call TcpSocketBase::NewAck() */

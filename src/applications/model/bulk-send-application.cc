@@ -29,12 +29,6 @@
 #include "ns3/uinteger.h"
 #include "ns3/trace-source-accessor.h"
 #include "ns3/tcp-socket-factory.h"
-#include "ns3/mp-tcp-socket.h"
-#include "ns3/tcp-mptcp.h"
-#include "ns3/tcp-newreno.h"
-
-
-
 #include "bulk-send-application.h"
 
 NS_LOG_COMPONENT_DEFINE ("BulkSendApplication");
@@ -50,7 +44,7 @@ BulkSendApplication::GetTypeId (void)
     .SetParent<Application> ()
     .AddConstructor<BulkSendApplication> ()
     .AddAttribute ("SendSize", "The amount of data to send each time.",
-                   UintegerValue (1460),
+                   UintegerValue (512),
                    MakeUintegerAccessor (&BulkSendApplication::m_sendSize),
                    MakeUintegerChecker<uint32_t> (1))
     .AddAttribute ("Remote", "The address of the destination",
@@ -69,14 +63,6 @@ BulkSendApplication::GetTypeId (void)
                    TypeIdValue (TcpSocketFactory::GetTypeId ()),
                    MakeTypeIdAccessor (&BulkSendApplication::m_tid),
                    MakeTypeIdChecker ())
-    .AddAttribute ("SocketType", "The type of protocol to use.",
-				   TypeIdValue (MpTcpSocket::GetTypeId ()),
-				   MakeTypeIdAccessor (&BulkSendApplication::m_socketType),
-				   MakeTypeIdChecker ())
-    .AddAttribute ("Congestion", "The type of protocol to use.",
-	   		 	   TypeIdValue (TcpMpTcp::GetTypeId ()),
-				   MakeTypeIdAccessor (&BulkSendApplication::m_congestion),
-				   MakeTypeIdChecker ())
     .AddTraceSource ("Tx", "A new packet is created and is sent",
                      MakeTraceSourceAccessor (&BulkSendApplication::m_txTrace))
   ;
@@ -129,7 +115,7 @@ void BulkSendApplication::StartApplication (void) // Called at time specified by
   // Create the socket if not already
   if (!m_socket)
     {
-      m_socket = Socket::CreateSocket (GetNode (), m_tid, m_socketType, m_congestion);
+      m_socket = Socket::CreateSocket (GetNode (), m_tid);
 
       // Fatal error if socket type is not NS3_SOCK_STREAM or NS3_SOCK_SEQPACKET
       if (m_socket->GetSocketType () != Socket::NS3_SOCK_STREAM &&
@@ -185,11 +171,10 @@ void BulkSendApplication::SendData (void)
         {
           toSend = std::min (m_sendSize, m_maxBytes - m_totBytes);
         }
-      NS_LOG_LOGIC ("sending packet at " << Simulator::Now () << " maxbytes " << m_maxBytes << " sent bytes " << m_totBytes);
+      NS_LOG_LOGIC ("sending packet at " << Simulator::Now ());
       Ptr<Packet> packet = Create<Packet> (toSend);
       m_txTrace (packet);
       int actual = m_socket->Send (packet);
-      NS_LOG_LOGIC ("actual " << actual);
       if (actual > 0)
         {
           m_totBytes += actual;

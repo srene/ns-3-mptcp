@@ -48,7 +48,10 @@ TypeId DropTailQueue::GetTypeId (void)
                    UintegerValue (100 * 65535),
                    MakeUintegerAccessor (&DropTailQueue::m_maxBytes),
                    MakeUintegerChecker<uint32_t> ())
-  ;
+   .AddTraceSource ("BytesQueue",
+				  "The number of bytes in the queue",
+				  MakeTraceSourceAccessor (&DropTailQueue::m_bytesInQueue))
+   ;
 
   return tid;
 }
@@ -58,32 +61,32 @@ DropTailQueue::DropTailQueue () :
   m_packets (),
   m_bytesInQueue (0)
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this);
 }
 
 DropTailQueue::~DropTailQueue ()
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this);
 }
 
 void
 DropTailQueue::SetMode (DropTailQueue::QueueMode mode)
 {
-  NS_LOG_FUNCTION (mode);
+  NS_LOG_FUNCTION (this << mode);
   m_mode = mode;
 }
 
 DropTailQueue::QueueMode
 DropTailQueue::GetMode (void)
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this);
   return m_mode;
 }
 
 bool 
 DropTailQueue::DoEnqueue (Ptr<Packet> p)
 {
-  NS_LOG_FUNCTION (this << p);
+  NS_LOG_FUNCTION (this << p << m_maxPackets << m_maxBytes);
 
   if (m_mode == QUEUE_MODE_PACKETS && (m_packets.size () >= m_maxPackets))
     {
